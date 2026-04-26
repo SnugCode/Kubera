@@ -38,4 +38,7 @@ yarn-error.*
 /ios
 /android 
 
+
+# Codex local workspace metadata
+.codex
 .codex/
