@@ -61,6 +61,8 @@ Kubera uses a hamburger menu in the top-right corner. The menu contains:
 - Expenses
 - Transaction History
 
+Adding a transaction happens from the circular `+` button in the bottom-right corner.
+
 ## Overview
 
 The Overview screen summarizes the user's projected finances.
@@ -76,11 +78,16 @@ Monthly projections only show months from when the user first opened the app thr
 
 Yearly projections calculate the full current year in the background, including upcoming months, even though upcoming months are not shown in the Monthly list.
 
-## Income
+## Add Transaction
 
-The Income screen lets the user add money coming in.
+Tap the circular `+` button in the bottom-right corner to open the Add Transaction screen. This single screen handles both income and expenses.
 
-Fields:
+First choose the transaction type:
+
+- Income
+- Expense
+
+For income, the form includes:
 
 - Title
 - Amount
@@ -100,17 +107,21 @@ Recurring income supports:
 
 One-time income hides the frequency selector and counts only once in the month it was added.
 
-## Expenses
-
-The Expenses screen lets the user add money going out.
-
-Fields:
+For expenses, the form includes:
 
 - Title
 - Amount
 - Frequency
 - Optional custom day counter, when Custom is selected
 - Start Date
+
+## Income
+
+The Income menu page displays income entries only, separately from expenses. It shows an income total and a filtered list of income items.
+
+## Expenses
+
+The Expenses menu page displays expense entries only, separately from income. It shows an expense total and a filtered list of expense items.
 
 Expense frequencies:
 

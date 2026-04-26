@@ -10,7 +10,12 @@ import {
   View,
 } from "react-native";
 
-type Section = "Overview" | "Income" | "Expenses" | "Transaction History";
+type Section =
+  | "Overview"
+  | "Income"
+  | "Expenses"
+  | "Transaction History"
+  | "Add Transaction";
 type Frequency =
   | "weekly"
   | "bi-weekly"
@@ -325,6 +330,7 @@ export default function App() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isMonthlyOpen, setIsMonthlyOpen] = useState(true);
   const [isYearlyOpen, setIsYearlyOpen] = useState(false);
+  const [transactionType, setTransactionType] = useState<EntryType>("income");
   const [nickname, setNickname] = useState("");
   const [nicknameInput, setNicknameInput] = useState("");
   const [appStartedAt] = useState(() => new Date());
@@ -427,6 +433,7 @@ export default function App() {
     };
 
     setEntries((prev) => [newEntry, ...prev]);
+    setActiveSection(type === "income" ? "Income" : "Expenses");
 
     if (type === "income") {
       setIncomeForm(createEmptyForm());
@@ -488,16 +495,58 @@ export default function App() {
 
     return (
       <ScrollView contentContainerStyle={styles.sectionContent}>
-        <Text style={styles.sectionEyebrow}>
-          {isIncome ? "Money coming in" : "Money going out"}
-        </Text>
-        <Text style={styles.sectionTitle}>
-          {isIncome ? "Add Income" : "Add Expense"}
-        </Text>
+        <Text style={styles.sectionEyebrow}>Add something new</Text>
+        <Text style={styles.sectionTitle}>Add Transaction</Text>
         <Text style={styles.sectionCopy}>
-          Capture recurring {isIncome ? "income" : "costs"} here so the
-          overview can project your monthly position.
+          Choose whether this is income or an expense, then enter the details.
         </Text>
+
+        <Text style={styles.label}>Transaction Type</Text>
+        <View style={styles.typeSelector}>
+          <TouchableOpacity
+            style={[styles.typeOption, isIncome && styles.typeOptionActive]}
+            onPress={() => setTransactionType("income")}
+          >
+            <Text
+              style={[
+                styles.typeOptionTitle,
+                isIncome && styles.typeOptionTitleActive,
+              ]}
+            >
+              Income
+            </Text>
+            <Text
+              style={[
+                styles.typeOptionText,
+                isIncome && styles.typeOptionTextActive,
+              ]}
+            >
+              Money coming in
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.typeOption, !isIncome && styles.typeOptionActive]}
+            onPress={() => setTransactionType("expense")}
+          >
+            <Text
+              style={[
+                styles.typeOptionTitle,
+                !isIncome && styles.typeOptionTitleActive,
+              ]}
+            >
+              Expense
+            </Text>
+            <Text
+              style={[
+                styles.typeOptionText,
+                !isIncome && styles.typeOptionTextActive,
+              ]}
+            >
+              Money going out
+            </Text>
+          </TouchableOpacity>
+        </View>
 
         <Text style={styles.label}>Title</Text>
         <TextInput
@@ -784,6 +833,80 @@ export default function App() {
     </ScrollView>
   );
 
+  const getEntryMeta = (item: FinanceEntry) =>
+    `${item.isOneTime ? "One-Time" : formatFrequency(item.frequency)}${
+      item.frequency === "custom" && item.customDays
+        ? ` every ${item.customDays} days`
+        : ""
+    }${item.startDate ? ` - Starts ${item.startDate}` : ""}`;
+
+  const renderEntryList = (type: EntryType) => {
+    const filteredEntries = entries.filter((entry) => entry.type === type);
+    const isIncome = type === "income";
+    const total = filteredEntries.reduce((sum, entry) => sum + entry.amount, 0);
+
+    return (
+      <View style={styles.sectionContent}>
+        <Text style={styles.sectionEyebrow}>
+          {isIncome ? "Money coming in" : "Money going out"}
+        </Text>
+        <Text style={styles.sectionTitle}>
+          {isIncome ? "Income" : "Expenses"}
+        </Text>
+        <Text style={styles.sectionCopy}>
+          {isIncome
+            ? "Review income entries separately from expenses."
+            : "Review expense entries separately from income."}
+        </Text>
+
+        <View style={styles.listSummaryCard}>
+          <Text style={styles.summaryLabel}>
+            {isIncome ? "Income Entries" : "Expense Entries"}
+          </Text>
+          <Text
+            style={[
+              styles.summaryAmount,
+              isIncome ? styles.positiveText : styles.negativeText,
+            ]}
+          >
+            {formatCurrency(total)}
+          </Text>
+          <Text style={styles.cardMeta}>
+            {filteredEntries.length} item
+            {filteredEntries.length === 1 ? "" : "s"}
+          </Text>
+        </View>
+
+        <FlatList
+          data={filteredEntries}
+          keyExtractor={(item) => item.id}
+          ListEmptyComponent={
+            <Text style={styles.emptyText}>
+              No {isIncome ? "income" : "expenses"} yet. Tap + to add one.
+            </Text>
+          }
+          renderItem={({ item }) => (
+            <View style={styles.historyCard}>
+              <View>
+                <Text style={styles.cardTitle}>{item.title}</Text>
+                <Text style={styles.cardMeta}>{getEntryMeta(item)}</Text>
+              </View>
+              <Text
+                style={[
+                  styles.cardAmount,
+                  isIncome ? styles.positiveText : styles.negativeText,
+                ]}
+              >
+                {isIncome ? "+" : "-"}
+                {formatCurrency(item.amount)}
+              </Text>
+            </View>
+          )}
+        />
+      </View>
+    );
+  };
+
   const renderHistory = () => (
     <View style={styles.sectionContent}>
       <Text style={styles.sectionEyebrow}>All user inputs</Text>
@@ -802,12 +925,7 @@ export default function App() {
             <View>
               <Text style={styles.cardTitle}>{item.title}</Text>
               <Text style={styles.cardMeta}>
-                {item.type === "income" ? "Income" : "Expense"} -{" "}
-                {item.isOneTime ? "One-Time" : formatFrequency(item.frequency)}
-                {item.frequency === "custom" && item.customDays
-                  ? ` every ${item.customDays} days`
-                  : ""}
-                {item.startDate ? ` - Starts ${item.startDate}` : ""}
+                {item.type === "income" ? "Income" : "Expense"} - {getEntryMeta(item)}
               </Text>
             </View>
             <Text
@@ -826,9 +944,12 @@ export default function App() {
   );
 
   const renderActiveSection = () => {
-    if (activeSection === "Income") return renderEntryForm("income");
-    if (activeSection === "Expenses") return renderEntryForm("expense");
+    if (activeSection === "Income") return renderEntryList("income");
+    if (activeSection === "Expenses") return renderEntryList("expense");
     if (activeSection === "Transaction History") return renderHistory();
+    if (activeSection === "Add Transaction") {
+      return renderEntryForm(transactionType);
+    }
 
     return renderOverview();
   };
@@ -907,6 +1028,20 @@ export default function App() {
       )}
 
       {renderActiveSection()}
+
+      {activeSection !== "Add Transaction" && (
+        <TouchableOpacity
+          accessibilityLabel="Add transaction"
+          style={styles.floatingAddButton}
+          onPress={() => {
+            setTransactionType("income");
+            setActiveSection("Add Transaction");
+            setIsMenuOpen(false);
+          }}
+        >
+          <Text style={styles.floatingAddButtonText}>+</Text>
+        </TouchableOpacity>
+      )}
     </SafeAreaView>
   );
 }
@@ -1024,6 +1159,28 @@ const styles = StyleSheet.create({
   menuItemTextActive: {
     color: "#0c1f13",
   },
+  floatingAddButton: {
+    position: "absolute",
+    right: 22,
+    bottom: 24,
+    width: 62,
+    height: 62,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 31,
+    backgroundColor: "#f9e8b8",
+    shadowColor: "#15251b",
+    shadowOpacity: 0.24,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 9,
+  },
+  floatingAddButtonText: {
+    color: "#15251b",
+    fontSize: 36,
+    fontWeight: "900",
+    marginTop: -3,
+  },
   sectionContent: {
     flexGrow: 1,
     padding: 22,
@@ -1047,6 +1204,25 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 23,
     marginBottom: 22,
+  },
+  listSummaryCard: {
+    padding: 18,
+    borderRadius: 22,
+    marginBottom: 16,
+    backgroundColor: "#fffaf1",
+    borderWidth: 1,
+    borderColor: "#eadcc4",
+  },
+  summaryLabel: {
+    color: "#66715f",
+    fontSize: 13,
+    fontWeight: "800",
+    marginBottom: 6,
+    textTransform: "uppercase",
+  },
+  summaryAmount: {
+    fontSize: 24,
+    fontWeight: "900",
   },
   heroCard: {
     padding: 24,
