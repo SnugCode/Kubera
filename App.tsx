@@ -11,7 +11,13 @@ import {
 } from "react-native";
 
 type Section = "Overview" | "Income" | "Expenses" | "Transaction History";
-type Frequency = "weekly" | "bi-weekly" | "monthly";
+type Frequency =
+  | "weekly"
+  | "bi-weekly"
+  | "monthly"
+  | "quarterly"
+  | "annually"
+  | "custom";
 type EntryType = "income" | "expense";
 
 type FinanceEntry = {
@@ -21,12 +27,34 @@ type FinanceEntry = {
   amount: number;
   frequency: Frequency;
   createdAt: string;
+  startDate?: string;
+  isOneTime?: boolean;
+  customDays?: number;
 };
 
 type EntryForm = {
   title: string;
   amount: string;
   frequency: Frequency;
+  startDate: string;
+  isOneTime: boolean;
+  customDays: number;
+};
+
+type MonthProjection = {
+  month: string;
+  year: number;
+  weeks: number;
+  income: number;
+  expenses: number;
+  net: number;
+};
+
+type YearProjection = {
+  year: number;
+  income: number;
+  expenses: number;
+  net: number;
 };
 
 const sections: Section[] = [
@@ -36,19 +64,46 @@ const sections: Section[] = [
   "Transaction History",
 ];
 
-const frequencies: Frequency[] = ["weekly", "bi-weekly", "monthly"];
+const incomeFrequencies: Frequency[] = ["weekly", "bi-weekly", "monthly"];
+const expenseFrequencies: Frequency[] = [
+  "weekly",
+  "bi-weekly",
+  "monthly",
+  "quarterly",
+  "annually",
+  "custom",
+];
+const monthNames = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
 
-const emptyForm: EntryForm = {
+const getDateInputValue = (date: Date) => {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+};
+
+const createEmptyForm = (): EntryForm => ({
   title: "",
   amount: "",
   frequency: "monthly",
-};
-
-const frequencyMultiplier: Record<Frequency, number> = {
-  weekly: 52 / 12,
-  "bi-weekly": 26 / 12,
-  monthly: 1,
-};
+  startDate: getDateInputValue(new Date()),
+  isOneTime: false,
+  customDays: 0,
+});
 
 const formatCurrency = (amount: number) =>
   `$${amount.toLocaleString(undefined, {
@@ -56,69 +111,337 @@ const formatCurrency = (amount: number) =>
     maximumFractionDigits: 2,
   })}`;
 
-const formatFrequency = (frequency: Frequency) =>
-  frequency
+const formatFrequency = (frequency: Frequency) => {
+  if (frequency === "custom") return "Custom";
+
+  return frequency
     .split("-")
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join("-");
+};
 
-const getMonthlyValue = (entry: FinanceEntry) =>
-  entry.amount * frequencyMultiplier[entry.frequency];
-
-const getMonthLabel = () =>
-  new Date().toLocaleDateString(undefined, {
+const formatDateLabel = (date: Date) =>
+  date.toLocaleDateString(undefined, {
+    weekday: "long",
     month: "long",
+    day: "numeric",
     year: "numeric",
   });
+
+const parseDateInput = (value: string) => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const monthIndex = Number(match[2]) - 1;
+  const day = Number(match[3]);
+  const date = new Date(year, monthIndex, day);
+
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== monthIndex ||
+    date.getDate() !== day
+  ) {
+    return null;
+  }
+
+  return date;
+};
+
+const getWeeksInMonth = (year: number, monthIndex: number) => {
+  const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
+
+  return Math.ceil(daysInMonth / 7);
+};
+
+const getMonthsSinceStart = (
+  startDate: Date,
+  year: number,
+  monthIndex: number,
+) =>
+  (year - startDate.getFullYear()) * 12 + monthIndex - startDate.getMonth();
+
+const getDaysBetween = (startDate: Date, endDate: Date) =>
+  Math.floor((endDate.getTime() - startDate.getTime()) / 86400000);
+
+const countCustomOccurrencesForMonth = (
+  startDate: Date,
+  intervalDays: number,
+  year: number,
+  monthIndex: number,
+) => {
+  const safeIntervalDays = Math.floor(intervalDays);
+
+  if (safeIntervalDays <= 0) return 0;
+
+  const monthStart = new Date(year, monthIndex, 1);
+  const monthEnd = new Date(year, monthIndex + 1, 0);
+
+  if (monthEnd < startDate) return 0;
+
+  let occurrenceDate = new Date(startDate);
+
+  if (occurrenceDate < monthStart) {
+    const daysUntilMonth = getDaysBetween(occurrenceDate, monthStart);
+    const intervalsToSkip = Math.floor(daysUntilMonth / safeIntervalDays);
+
+    occurrenceDate = new Date(occurrenceDate);
+    occurrenceDate.setDate(occurrenceDate.getDate() + intervalsToSkip * safeIntervalDays);
+
+    while (occurrenceDate < monthStart) {
+      occurrenceDate.setDate(occurrenceDate.getDate() + safeIntervalDays);
+    }
+  }
+
+  let count = 0;
+
+  while (occurrenceDate <= monthEnd) {
+    count += 1;
+    occurrenceDate.setDate(occurrenceDate.getDate() + safeIntervalDays);
+  }
+
+  return count;
+};
+
+const getOccurrencesForMonth = (
+  entry: FinanceEntry,
+  weeks: number,
+  year: number,
+  monthIndex: number,
+) => {
+  if (entry.isOneTime) {
+    const createdAt = new Date(entry.createdAt);
+
+    return createdAt.getFullYear() === year && createdAt.getMonth() === monthIndex
+      ? 1
+      : 0;
+  }
+
+  if (entry.frequency === "weekly") return weeks;
+  if (entry.frequency === "bi-weekly") return Math.ceil(weeks / 2);
+  if (
+    entry.frequency === "quarterly" ||
+    entry.frequency === "annually" ||
+    entry.frequency === "custom"
+  ) {
+    const startDate = entry.startDate ? parseDateInput(entry.startDate) : null;
+
+    if (!startDate) return 0;
+    if (entry.frequency === "custom") {
+      return countCustomOccurrencesForMonth(
+        startDate,
+        entry.customDays ?? 0,
+        year,
+        monthIndex,
+      );
+    }
+
+    const monthsSinceStart = getMonthsSinceStart(startDate, year, monthIndex);
+
+    if (monthsSinceStart < 0) return 0;
+    if (entry.frequency === "quarterly") return monthsSinceStart % 3 === 0 ? 1 : 0;
+
+    return monthsSinceStart % 12 === 0 ? 1 : 0;
+  }
+
+  return 1;
+};
+
+const isEntryActiveForMonth = (
+  entry: FinanceEntry,
+  year: number,
+  monthIndex: number,
+) => {
+  if (entry.isOneTime) {
+    const createdAt = new Date(entry.createdAt);
+
+    return createdAt.getFullYear() === year && createdAt.getMonth() === monthIndex;
+  }
+
+  if (entry.type === "income" || !entry.startDate) return true;
+
+  const startDate = parseDateInput(entry.startDate);
+
+  if (!startDate) return true;
+
+  const entryMonth = new Date(year, monthIndex, 1).getTime();
+  const startMonth = new Date(
+    startDate.getFullYear(),
+    startDate.getMonth(),
+    1,
+  ).getTime();
+
+  return entryMonth >= startMonth;
+};
+
+const getEntryValueForMonth = (
+  entry: FinanceEntry,
+  weeks: number,
+  year: number,
+  monthIndex: number,
+) => {
+  if (!isEntryActiveForMonth(entry, year, monthIndex)) return 0;
+
+  return entry.amount * getOccurrencesForMonth(entry, weeks, year, monthIndex);
+};
+
+const getMonthProjection = (
+  year: number,
+  monthIndex: number,
+  entries: FinanceEntry[],
+): MonthProjection => {
+  const weeks = getWeeksInMonth(year, monthIndex);
+  const income = entries
+    .filter((entry) => entry.type === "income")
+    .reduce(
+      (sum, entry) => sum + getEntryValueForMonth(entry, weeks, year, monthIndex),
+      0,
+    );
+  const expenses = entries
+    .filter((entry) => entry.type === "expense")
+    .reduce(
+      (sum, entry) => sum + getEntryValueForMonth(entry, weeks, year, monthIndex),
+      0,
+    );
+
+  return {
+    month: monthNames[monthIndex],
+    year,
+    weeks,
+    income,
+    expenses,
+    net: income - expenses,
+  };
+};
+
+const getYearRange = (startYear: number, endYear: number) =>
+  Array.from({ length: endYear - startYear + 1 }, (_, index) =>
+    startYear + index,
+  );
 
 export default function App() {
   const [activeSection, setActiveSection] = useState<Section>("Overview");
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [incomeForm, setIncomeForm] = useState<EntryForm>(emptyForm);
-  const [expenseForm, setExpenseForm] = useState<EntryForm>(emptyForm);
+  const [isMonthlyOpen, setIsMonthlyOpen] = useState(true);
+  const [isYearlyOpen, setIsYearlyOpen] = useState(false);
+  const [nickname, setNickname] = useState("");
+  const [nicknameInput, setNicknameInput] = useState("");
+  const [appStartedAt] = useState(() => new Date());
+  const [incomeForm, setIncomeForm] = useState<EntryForm>(() => createEmptyForm());
+  const [expenseForm, setExpenseForm] = useState<EntryForm>(() => createEmptyForm());
   const [entries, setEntries] = useState<FinanceEntry[]>([]);
+  const today = new Date();
+  const todayLabel = formatDateLabel(today);
+  const currentYear = today.getFullYear();
+  const currentMonthIndex = today.getMonth();
+  const startYear = appStartedAt.getFullYear();
+  const startMonthIndex = appStartedAt.getMonth();
 
-  const monthlyIncome = useMemo(
+  const visibleMonthProjections = useMemo<MonthProjection[]>(() => {
+    const projections: MonthProjection[] = [];
+
+    getYearRange(startYear, currentYear).forEach((year) => {
+      const firstMonth = year === startYear ? startMonthIndex : 0;
+      const lastMonth = year === currentYear ? currentMonthIndex : 11;
+
+      for (let monthIndex = firstMonth; monthIndex <= lastMonth; monthIndex += 1) {
+        projections.push(getMonthProjection(year, monthIndex, entries));
+      }
+    });
+
+    return projections;
+  }, [currentMonthIndex, currentYear, entries, startMonthIndex, startYear]);
+
+  const fullYearMonthProjections = useMemo<MonthProjection[]>(() => {
+    const projections: MonthProjection[] = [];
+
+    getYearRange(startYear, currentYear).forEach((year) => {
+      const firstMonth = year === startYear ? startMonthIndex : 0;
+
+      for (let monthIndex = firstMonth; monthIndex <= 11; monthIndex += 1) {
+        projections.push(getMonthProjection(year, monthIndex, entries));
+      }
+    });
+
+    return projections;
+  }, [currentYear, entries, startMonthIndex, startYear]);
+
+  const currentMonthProjection =
+    visibleMonthProjections[visibleMonthProjections.length - 1] ??
+    getMonthProjection(currentYear, currentMonthIndex, entries);
+
+  const yearProjections = useMemo<YearProjection[]>(
     () =>
-      entries
-        .filter((entry) => entry.type === "income")
-        .reduce((sum, entry) => sum + getMonthlyValue(entry), 0),
-    [entries],
-  );
+      getYearRange(startYear, currentYear).map((year) => {
+        const yearMonths = fullYearMonthProjections.filter(
+          (projection) => projection.year === year,
+        );
+        const income = yearMonths.reduce(
+          (sum, projection) => sum + projection.income,
+          0,
+        );
+        const expenses = yearMonths.reduce(
+          (sum, projection) => sum + projection.expenses,
+          0,
+        );
 
-  const monthlyExpenses = useMemo(
-    () =>
-      entries
-        .filter((entry) => entry.type === "expense")
-        .reduce((sum, entry) => sum + getMonthlyValue(entry), 0),
-    [entries],
+        return {
+          year,
+          income,
+          expenses,
+          net: income - expenses,
+        };
+      }),
+    [currentYear, fullYearMonthProjections, startYear],
   );
-
-  const monthlyNet = monthlyIncome - monthlyExpenses;
 
   const addEntry = (type: EntryType) => {
     const form = type === "income" ? incomeForm : expenseForm;
     const amount = Number.parseFloat(form.amount);
 
-    if (!form.title.trim() || Number.isNaN(amount) || amount <= 0) return;
+    const startDate = type === "expense" ? parseDateInput(form.startDate) : null;
+
+    if (
+      !form.title.trim() ||
+      Number.isNaN(amount) ||
+      amount <= 0 ||
+      (type === "expense" && !startDate)
+    ) {
+      return;
+    }
 
     const newEntry: FinanceEntry = {
       id: `${type}-${Date.now()}`,
       type,
       title: form.title.trim(),
       amount,
-      frequency: form.frequency,
+      frequency: form.isOneTime ? "monthly" : form.frequency,
       createdAt: new Date().toISOString(),
+      startDate: startDate ? getDateInputValue(startDate) : undefined,
+      isOneTime: type === "income" ? form.isOneTime : false,
+      customDays:
+        type === "expense" && form.frequency === "custom"
+          ? Math.max(0, Math.floor(form.customDays))
+          : undefined,
     };
 
     setEntries((prev) => [newEntry, ...prev]);
 
     if (type === "income") {
-      setIncomeForm(emptyForm);
+      setIncomeForm(createEmptyForm());
       return;
     }
 
-    setExpenseForm(emptyForm);
+    setExpenseForm(createEmptyForm());
+  };
+
+  const saveNickname = () => {
+    const trimmedNickname = nicknameInput.trim();
+
+    if (!trimmedNickname) return;
+
+    setNickname(trimmedNickname);
   };
 
   const selectSection = (section: Section) => {
@@ -127,11 +450,12 @@ export default function App() {
   };
 
   const renderFrequencySelector = (
+    availableFrequencies: Frequency[],
     selectedFrequency: Frequency,
     onSelect: (frequency: Frequency) => void,
   ) => (
     <View style={styles.frequencyRow}>
-      {frequencies.map((frequency) => {
+      {availableFrequencies.map((frequency) => {
         const isSelected = selectedFrequency === frequency;
 
         return (
@@ -192,9 +516,126 @@ export default function App() {
           style={styles.input}
         />
 
-        <Text style={styles.label}>Frequency</Text>
-        {renderFrequencySelector(form.frequency, (frequency) =>
-          setForm((prev) => ({ ...prev, frequency })),
+        {isIncome && (
+          <>
+            <Text style={styles.label}>Income Type</Text>
+            <View style={styles.typeSelector}>
+              <TouchableOpacity
+                style={[
+                  styles.typeOption,
+                  !form.isOneTime && styles.typeOptionActive,
+                ]}
+                onPress={() =>
+                  setForm((prev) => ({ ...prev, isOneTime: false }))
+                }
+              >
+                <Text
+                  style={[
+                    styles.typeOptionTitle,
+                    !form.isOneTime && styles.typeOptionTitleActive,
+                  ]}
+                >
+                  Recurring
+                </Text>
+                <Text
+                  style={[
+                    styles.typeOptionText,
+                    !form.isOneTime && styles.typeOptionTextActive,
+                  ]}
+                >
+                  Uses frequency below
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.typeOption,
+                  form.isOneTime && styles.typeOptionActive,
+                ]}
+                onPress={() =>
+                  setForm((prev) => ({ ...prev, isOneTime: true }))
+                }
+              >
+                <Text
+                  style={[
+                    styles.typeOptionTitle,
+                    form.isOneTime && styles.typeOptionTitleActive,
+                  ]}
+                >
+                  One-time
+                </Text>
+                <Text
+                  style={[
+                    styles.typeOptionText,
+                    form.isOneTime && styles.typeOptionTextActive,
+                  ]}
+                >
+                  Counts once only
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        )}
+
+        {(!isIncome || !form.isOneTime) && (
+          <>
+            <Text style={styles.label}>Frequency</Text>
+            {renderFrequencySelector(
+              isIncome ? incomeFrequencies : expenseFrequencies,
+              form.frequency,
+              (frequency) => setForm((prev) => ({ ...prev, frequency })),
+            )}
+          </>
+        )}
+
+        {!isIncome && form.frequency === "custom" && (
+          <View style={styles.customFrequencyCard}>
+            <View style={styles.customFrequencySentence}>
+              <Text style={styles.customFrequencyText}>Every</Text>
+              <TouchableOpacity
+                style={styles.counterButton}
+                onPress={() =>
+                  setForm((prev) => ({
+                    ...prev,
+                    customDays: Math.max(0, prev.customDays - 1),
+                  }))
+                }
+              >
+                <Text style={styles.counterButtonText}>-</Text>
+              </TouchableOpacity>
+              <Text style={styles.counterValue}>{form.customDays}</Text>
+              <TouchableOpacity
+                style={styles.counterButton}
+                onPress={() =>
+                  setForm((prev) => ({
+                    ...prev,
+                    customDays: prev.customDays + 1,
+                  }))
+                }
+              >
+                <Text style={styles.counterButtonText}>+</Text>
+              </TouchableOpacity>
+              <Text style={styles.customFrequencyText}>days</Text>
+            </View>
+            <Text style={styles.customFrequencyHint}>
+              Starts at 0. Use + to add days and - to deduct while above 0.
+            </Text>
+          </View>
+        )}
+
+        {!isIncome && (
+          <>
+            <Text style={styles.label}>Start Date</Text>
+            <TextInput
+              placeholder="YYYY-MM-DD"
+              value={form.startDate}
+              onChangeText={(startDate) =>
+                setForm((prev) => ({ ...prev, startDate }))
+              }
+              keyboardType="numbers-and-punctuation"
+              style={styles.input}
+            />
+          </>
         )}
 
         <TouchableOpacity
@@ -209,47 +650,136 @@ export default function App() {
     );
   };
 
+  const renderProjectionTotals = (
+    income: number,
+    expenses: number,
+    net: number,
+  ) => (
+    <View style={styles.projectionTotals}>
+      <Text style={[styles.monthAmount, styles.positiveText]}>
+        +{formatCurrency(income)}
+      </Text>
+      <Text style={[styles.monthAmount, styles.negativeText]}>
+        -{formatCurrency(expenses)}
+      </Text>
+      <Text
+        style={[styles.monthNet, net >= 0 ? styles.positiveText : styles.negativeText]}
+      >
+        Net {formatCurrency(net)}
+      </Text>
+    </View>
+  );
+
   const renderOverview = () => (
     <ScrollView contentContainerStyle={styles.sectionContent}>
-      <Text style={styles.sectionEyebrow}>Current month onwards</Text>
+      <Text style={styles.sectionEyebrow}>Since you got Kubera</Text>
       <Text style={styles.sectionTitle}>Overview</Text>
       <Text style={styles.sectionCopy}>
-        Starting {getMonthLabel()}, weekly and bi-weekly entries are converted
-        into monthly averages to show your expected net amount.
+        Monthly projections show from the month you first opened the app through
+        the current month. Yearly totals still calculate the full current year
+        in the background, including upcoming months.
       </Text>
 
       <View style={styles.heroCard}>
-        <Text style={styles.heroLabel}>Projected Monthly Net</Text>
+        <Text style={styles.heroLabel}>Current Month Net</Text>
         <Text
           style={[
             styles.heroAmount,
-            monthlyNet >= 0 ? styles.positiveText : styles.negativeText,
+            currentMonthProjection.net >= 0
+              ? styles.positiveText
+              : styles.negativeText,
           ]}
         >
-          {formatCurrency(monthlyNet)}
+          {formatCurrency(currentMonthProjection.net)}
+        </Text>
+        <Text style={styles.heroMeta}>
+          {currentMonthProjection.month} {currentMonthProjection.year} uses {" "}
+          {currentMonthProjection.weeks} pay weeks.
         </Text>
       </View>
 
-      <View style={styles.summaryGrid}>
-        <View style={styles.summaryCard}>
-          <Text style={styles.summaryLabel}>Monthly Income</Text>
-          <Text style={[styles.summaryAmount, styles.positiveText]}>
-            {formatCurrency(monthlyIncome)}
-          </Text>
-        </View>
-        <View style={styles.summaryCard}>
-          <Text style={styles.summaryLabel}>Monthly Expenses</Text>
-          <Text style={[styles.summaryAmount, styles.negativeText]}>
-            {formatCurrency(monthlyExpenses)}
-          </Text>
-        </View>
+      <View style={styles.collapsibleCard}>
+        <TouchableOpacity
+          style={styles.collapsibleHeader}
+          onPress={() => setIsMonthlyOpen((prev) => !prev)}
+        >
+          <View>
+            <Text style={styles.collapsibleTitle}>Monthly</Text>
+            <Text style={styles.collapsibleMeta}>
+              {visibleMonthProjections.length} month
+              {visibleMonthProjections.length === 1 ? "" : "s"} shown
+            </Text>
+          </View>
+          <Text style={styles.collapsibleIcon}>{isMonthlyOpen ? "-" : "+"}</Text>
+        </TouchableOpacity>
+
+        {isMonthlyOpen && (
+          <View style={styles.projectionList}>
+            {visibleMonthProjections.map((projection) => (
+              <View
+                key={`${projection.year}-${projection.month}`}
+                style={styles.projectionRow}
+              >
+                <View>
+                  <Text style={styles.monthName}>
+                    {projection.month} {projection.year}
+                  </Text>
+                  <Text style={styles.monthMeta}>{projection.weeks} weeks</Text>
+                </View>
+                {renderProjectionTotals(
+                  projection.income,
+                  projection.expenses,
+                  projection.net,
+                )}
+              </View>
+            ))}
+          </View>
+        )}
+      </View>
+
+      <View style={styles.collapsibleCard}>
+        <TouchableOpacity
+          style={styles.collapsibleHeader}
+          onPress={() => setIsYearlyOpen((prev) => !prev)}
+        >
+          <View>
+            <Text style={styles.collapsibleTitle}>Yearly</Text>
+            <Text style={styles.collapsibleMeta}>
+              {yearProjections.length} year
+              {yearProjections.length === 1 ? "" : "s"} shown
+            </Text>
+          </View>
+          <Text style={styles.collapsibleIcon}>{isYearlyOpen ? "-" : "+"}</Text>
+        </TouchableOpacity>
+
+        {isYearlyOpen && (
+          <View style={styles.projectionList}>
+            {yearProjections.map((projection) => (
+              <View key={projection.year} style={styles.projectionRow}>
+                <View>
+                  <Text style={styles.monthName}>{projection.year}</Text>
+                  <Text style={styles.monthMeta}>Full year projection</Text>
+                </View>
+                {renderProjectionTotals(
+                  projection.income,
+                  projection.expenses,
+                  projection.net,
+                )}
+              </View>
+            ))}
+          </View>
+        )}
       </View>
 
       <View style={styles.noteCard}>
         <Text style={styles.noteTitle}>Frequency math</Text>
-        <Text style={styles.noteText}>Weekly = amount x 52 / 12</Text>
-        <Text style={styles.noteText}>Bi-weekly = amount x 26 / 12</Text>
+        <Text style={styles.noteText}>Weekly = amount x month week count</Text>
+        <Text style={styles.noteText}>Bi-weekly = amount x half the month week count</Text>
         <Text style={styles.noteText}>Monthly = amount x 1</Text>
+        <Text style={styles.noteText}>Quarterly = amount every 3 months from start date</Text>
+        <Text style={styles.noteText}>Annually = amount every 12 months from start date</Text>
+        <Text style={styles.noteText}>Custom = amount every chosen number of days</Text>
+        <Text style={styles.noteText}>One-time income = amount in the month added</Text>
       </View>
     </ScrollView>
   );
@@ -273,7 +803,11 @@ export default function App() {
               <Text style={styles.cardTitle}>{item.title}</Text>
               <Text style={styles.cardMeta}>
                 {item.type === "income" ? "Income" : "Expense"} -{" "}
-                {formatFrequency(item.frequency)}
+                {item.isOneTime ? "One-Time" : formatFrequency(item.frequency)}
+                {item.frequency === "custom" && item.customDays
+                  ? ` every ${item.customDays} days`
+                  : ""}
+                {item.startDate ? ` - Starts ${item.startDate}` : ""}
               </Text>
             </View>
             <Text
@@ -299,12 +833,42 @@ export default function App() {
     return renderOverview();
   };
 
+  if (!nickname) {
+    return (
+      <SafeAreaView style={styles.onboardingContainer}>
+        <View style={styles.onboardingCard}>
+          <Text style={styles.onboardingEyebrow}>Welcome to</Text>
+          <Text style={styles.onboardingTitle}>Kubera</Text>
+          <Text style={styles.onboardingCopy}>
+            What should we call your personal finance tracker?
+          </Text>
+
+          <Text style={styles.label}>Nickname</Text>
+          <TextInput
+            placeholder="Your nickname"
+            value={nicknameInput}
+            onChangeText={setNicknameInput}
+            onSubmitEditing={saveNickname}
+            style={styles.input}
+          />
+
+          <TouchableOpacity style={styles.button} onPress={saveNickname}>
+            <Text style={styles.buttonText}>Continue</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <View>
           <Text style={styles.appName}>Kubera</Text>
-          <Text style={styles.appTagline}>Personal finance tracker</Text>
+          <Text style={styles.appTagline}>
+            {nickname}'s Personal Finance Tracker
+          </Text>
+          <Text style={styles.todayLabel}>Today: {todayLabel}</Text>
         </View>
 
         <TouchableOpacity
@@ -352,6 +916,39 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#f5f0e8",
   },
+  onboardingContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 22,
+    backgroundColor: "#15251b",
+  },
+  onboardingCard: {
+    width: "100%",
+    padding: 24,
+    borderRadius: 30,
+    backgroundColor: "#fffaf1",
+  },
+  onboardingEyebrow: {
+    color: "#8a5c2e",
+    fontSize: 12,
+    fontWeight: "900",
+    letterSpacing: 1.5,
+    marginBottom: 6,
+    textTransform: "uppercase",
+  },
+  onboardingTitle: {
+    color: "#15251b",
+    fontSize: 44,
+    fontWeight: "900",
+    marginBottom: 8,
+  },
+  onboardingCopy: {
+    color: "#5b665d",
+    fontSize: 17,
+    lineHeight: 24,
+    marginBottom: 22,
+  },
   header: {
     position: "relative",
     zIndex: 2,
@@ -374,6 +971,12 @@ const styles = StyleSheet.create({
     color: "#c8d1bd",
     fontSize: 13,
     fontWeight: "600",
+  },
+  todayLabel: {
+    marginTop: 6,
+    color: "#f9e8b8",
+    fontSize: 12,
+    fontWeight: "800",
   },
   menuButton: {
     width: 48,
@@ -464,23 +1067,77 @@ const styles = StyleSheet.create({
     fontSize: 42,
     fontWeight: "900",
   },
-  summaryGrid: {
-    gap: 12,
-  },
-  summaryCard: {
-    padding: 18,
-    borderRadius: 22,
-    backgroundColor: "#eef4e3",
-  },
-  summaryLabel: {
+  heroMeta: {
     color: "#66715f",
+    fontSize: 14,
+    fontWeight: "700",
+    marginTop: 8,
+  },
+  collapsibleCard: {
+    overflow: "hidden",
+    borderRadius: 24,
+    marginBottom: 14,
+    backgroundColor: "#fffaf1",
+    borderWidth: 1,
+    borderColor: "#eadcc4",
+  },
+  collapsibleHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: 18,
+  },
+  collapsibleTitle: {
+    color: "#18251c",
+    fontSize: 20,
+    fontWeight: "900",
+  },
+  collapsibleMeta: {
+    color: "#6d766c",
+    fontSize: 13,
+    fontWeight: "700",
+    marginTop: 4,
+  },
+  collapsibleIcon: {
+    color: "#15251b",
+    fontSize: 30,
+    fontWeight: "800",
+  },
+  projectionList: {
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingBottom: 12,
+  },
+  projectionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    padding: 14,
+    borderRadius: 18,
+    backgroundColor: "#f5f0e8",
+  },
+  monthName: {
+    color: "#18251c",
+    fontSize: 18,
+    fontWeight: "900",
+  },
+  monthMeta: {
+    color: "#6d766c",
+    fontSize: 13,
+    fontWeight: "700",
+    marginTop: 4,
+  },
+  projectionTotals: {
+    alignItems: "flex-end",
+    gap: 3,
+  },
+  monthAmount: {
     fontSize: 13,
     fontWeight: "800",
-    marginBottom: 6,
-    textTransform: "uppercase",
   },
-  summaryAmount: {
-    fontSize: 24,
+  monthNet: {
+    fontSize: 15,
     fontWeight: "900",
   },
   noteCard: {
@@ -515,6 +1172,85 @@ const styles = StyleSheet.create({
     backgroundColor: "#fffaf1",
     color: "#18251c",
     fontSize: 16,
+  },
+  typeSelector: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 18,
+  },
+  typeOption: {
+    flex: 1,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "#dccdb6",
+    borderRadius: 18,
+    backgroundColor: "#fffaf1",
+  },
+  typeOptionActive: {
+    borderColor: "#176b41",
+    backgroundColor: "#176b41",
+  },
+  typeOptionTitle: {
+    color: "#18251c",
+    fontSize: 16,
+    fontWeight: "900",
+    marginBottom: 4,
+  },
+  typeOptionTitleActive: {
+    color: "#fffaf1",
+  },
+  typeOptionText: {
+    color: "#6d766c",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  typeOptionTextActive: {
+    color: "#dbe5d2",
+  },
+  customFrequencyCard: {
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "#dccdb6",
+    borderRadius: 20,
+    marginTop: -6,
+    marginBottom: 18,
+    backgroundColor: "#fffaf1",
+  },
+  customFrequencySentence: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  customFrequencyText: {
+    color: "#18251c",
+    fontSize: 18,
+    fontWeight: "900",
+  },
+  counterButton: {
+    width: 34,
+    height: 34,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 12,
+    marginHorizontal: 6,
+    backgroundColor: "#15251b",
+  },
+  counterButtonText: {
+    color: "#f9e8b8",
+    fontSize: 20,
+    fontWeight: "900",
+  },
+  counterValue: {
+    color: "#176b41",
+    fontSize: 24,
+    fontWeight: "900",
+  },
+  customFrequencyHint: {
+    color: "#6d766c",
+    fontSize: 13,
+    fontWeight: "700",
+    marginTop: 8,
   },
   frequencyRow: {
     flexDirection: "row",
