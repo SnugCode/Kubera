@@ -51,6 +51,10 @@ function perPaycheck(goal: Goal): number {
   return remaining / (monthsLeft * WEEKS_PER_MONTH);
 }
 
+function fmtMonth(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
 function progressPct(goal: Goal): number {
   if (goal.targetAmount <= 0) return 0;
   return Math.min(100, (goal.saved / goal.targetAmount) * 100);
@@ -142,8 +146,8 @@ function GoalCard({ goal, onContribute, onComplete, onRemove, isActive = true, l
             <div className={`goal-deadline${overdue ? ' overdue' : ''}`}>
               <span>
                 {overdue
-                  ? `Overdue — was due ${deadline.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}`
-                  : `Due ${deadline.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })} · ${mLeft.toFixed(1)} months left`}
+                  ? `Overdue — was due ${fmtMonth(deadline)}`
+                  : `Due ${fmtMonth(deadline)} · ${mLeft.toFixed(1)} months left`}
               </span>
               {!overdue && remaining > 0 && (
                 <span className="per-paycheck">

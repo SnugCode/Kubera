@@ -6,6 +6,10 @@ interface Props {
   onDelete: (id: string) => void;
 }
 
+function fmtDate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 export function HistoryView({ history, onDelete }: Props) {
   const [expanded, setExpanded] = useState<string | null>(null);
 
@@ -37,12 +41,7 @@ export function HistoryView({ history, onDelete }: Props) {
             >
               <div className="history-meta">
                 <span className="history-date">
-                  {date.toLocaleDateString('en-US', {
-                    weekday: 'short',
-                    year: 'numeric',
-                    month: 'short',
-                    day: 'numeric',
-                  })}
+                  {fmtDate(date)}
                 </span>
                 <span className="history-gross">
                   ${record.gross.toLocaleString('en-US', { minimumFractionDigits: 2 })}

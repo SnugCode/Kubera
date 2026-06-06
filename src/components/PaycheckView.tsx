@@ -9,10 +9,11 @@ interface Props {
   onDelete: (id: string) => void;
 }
 
-function todayStr() {
-  const d = new Date();
+function fmtDate(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
+
+function todayStr() { return fmtDate(new Date()); }
 
 export function PaycheckView({ priorities, onSave, history, onDelete }: Props) {
   const [input, setInput]       = useState('');
@@ -152,7 +153,7 @@ export function PaycheckView({ priorities, onSave, history, onDelete }: Props) {
                     >
                       <div className="history-meta">
                         <span className="history-date">
-                          {d.toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}
+                          {fmtDate(d)}
                         </span>
                         <span className="history-gross">
                           ${record.gross.toLocaleString('en-US', { minimumFractionDigits: 2 })}
