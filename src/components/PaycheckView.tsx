@@ -1,0 +1,112 @@
+import { useState } from 'react';
+import { allocate } from '../allocate';
+import type { Priority, PaycheckRecord } from '../types';
+
+interface Props {
+  priorities: Priority[];
+  onSave: (record: PaycheckRecord) => void;
+}
+
+export function PaycheckView({ priorities, onSave }: Props) {
+  const [input, setInput] = useState('');
+
+  const gross = parseFloat(input) || 0;
+  const result = gross > 0 ? allocate(gross, priorities) : { lines: [], unallocated: 0 };
+  const hasShortfall = result.lines.some((l) => l.shortfall);
+
+  function handleSave() {
+    if (gross <= 0) return;
+    onSave({
+      id: crypto.randomUUID(),
+      date: new Date().toISOString(),
+      gross,
+      result,
+    });
+    setInput('');
+  }
+
+  return (
+    <div className="view">
+      <div className="card paycheck-entry">
+        <label className="entry-label">How much did you receive this paycheck?</label>
+        <div className="amount-input-wrap">
+          <span className="dollar-sign">$</span>
+          <input
+            className="amount-input"
+            type="number"
+            min="0"
+            step="0.01"
+            placeholder="0.00"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            autoFocus
+          />
+        </div>
+      </div>
+
+      {priorities.length === 0 && (
+        <div className="card hint-card">
+          No priorities set up yet. Go to <strong>Priorities</strong> to configure how your money gets split.
+        </div>
+      )}
+
+      {gross > 0 && priorities.length > 0 && (
+        <div className="card allocation-card">
+          <h2 className="section-title">
+            How to split your ${gross.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </h2>
+
+          {hasShortfall && (
+            <div className="warning">
+              Your paycheck doesn't fully cover all fixed expenses this week.
+            </div>
+          )}
+
+          <div className="allocation-list">
+            {result.lines.map((line) => (
+              <div key={line.priority.id} className="allocation-row">
+                <div className="alloc-top">
+                  <span className="alloc-name">{line.priority.name}</span>
+                  <div className="alloc-right">
+                    <span className={`alloc-amount${line.shortfall ? ' shortfall' : ''}`}>
+                      ${line.allocated.toFixed(2)}
+                      {line.priority.type === 'fixed' && !line.shortfall && (
+                        <span className="shortfall-note"> of ${line.priority.amount?.toFixed(2)}/mo</span>
+                      )}
+                      {line.shortfall && (
+                        <span className="shortfall-note"> / ${((line.priority.amount ?? 0) / 4).toFixed(2)} needed</span>
+                      )}
+                    </span>
+                    <span className="alloc-pct">{line.pct.toFixed(1)}%</span>
+                  </div>
+                </div>
+                <div className="bar-track">
+                  <div className="bar-fill" style={{ width: `${Math.max(0, line.pct)}%` }} />
+                </div>
+              </div>
+            ))}
+
+            {result.unallocated > 0.005 && (
+              <div className="allocation-row">
+                <div className="alloc-top">
+                  <span className="alloc-name muted">Unallocated</span>
+                  <div className="alloc-right">
+                    <span className="alloc-amount muted">${result.unallocated.toFixed(2)}</span>
+                    <span className="alloc-pct">{((result.unallocated / gross) * 100).toFixed(1)}%</span>
+                  </div>
+                </div>
+                <div className="bar-track">
+                  <div className="bar-fill unallocated" style={{ width: `${(result.unallocated / gross) * 100}%` }} />
+                </div>
+              </div>
+            )}
+          </div>
+
+          <button className="save-btn" onClick={handleSave}>
+            Save this paycheck →
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
