@@ -1324,9 +1324,8 @@ input[type=number] { -moz-appearance: textfield; }
   letter-spacing: 0.3px;
   white-space: nowrap;
 }
-.guide-tier-essential     { background: rgba(23,107,65,0.1);   color: var(--green); }
-.guide-tier-flexible      { background: rgba(41,128,185,0.1);  color: #2980b9; }
-.guide-tier-discretionary { background: rgba(91,102,93,0.1);   color: var(--muted); }
+.guide-tier-essential    { background: rgba(23,107,65,0.1); color: var(--green); }
+.guide-tier-good-to-have { background: rgba(91,102,93,0.1); color: var(--muted); }
 
 /* Delta chip in summary banner */
 .guide-delta-chip {
@@ -1387,6 +1386,71 @@ input[type=number] { -moz-appearance: textfield; }
 }
 .guide-bill-progress { display: flex; flex-direction: column; gap: 3px; margin-top: 3px; }
 .guide-bill-prog-label { font-size: 11px; color: var(--muted); }
+
+/* ── Assistant: Payment plan ─────────────────────────── */
+
+.pay-plan-list  { display: flex; flex-direction: column; gap: 0; }
+.pay-plan-divider { height: 1px; background: var(--border); margin: 10px 0; }
+
+.pay-plan-group-label {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  padding: 2px 0 6px;
+}
+.pay-plan-group-label.pay-tag-overdue    { color: var(--red); }
+.pay-plan-group-label.pay-tag-this-week  { color: var(--text); }
+.pay-plan-group-label.pay-tag-quick-win  { color: #8a6700; }
+.pay-plan-group-label.pay-tag-this-month { color: #2980b9; }
+.pay-plan-group-label.pay-tag-next-month { color: var(--muted); }
+
+.pay-action-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border);
+}
+.pay-action-row:last-child { border-bottom: none; }
+
+.pay-action-left  { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
+.pay-action-top   { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.pay-action-dot   { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.pay-action-name  { font-size: 14px; font-weight: 700; color: var(--text); }
+.pay-action-sub   { font-size: 11px; color: var(--muted); padding-left: 14px; }
+
+.pay-tag-chip {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+.pay-tag-chip.pay-tag-overdue    { background: rgba(159,61,40,0.12);  color: var(--red); }
+.pay-tag-chip.pay-tag-this-week  { background: rgba(21,37,27,0.1);   color: var(--text); }
+.pay-tag-chip.pay-tag-quick-win  { background: rgba(249,232,184,0.7); color: #8a6700; border: 1px solid rgba(138,103,0,0.2); }
+.pay-tag-chip.pay-tag-this-month { background: rgba(41,128,185,0.1);  color: #2980b9; }
+.pay-tag-chip.pay-tag-next-month { background: rgba(91,102,93,0.1);   color: var(--muted); }
+
+.pay-action-bar-wrap { display: flex; align-items: center; gap: 6px; padding-left: 14px; margin-top: 2px; }
+.pay-action-bar-wrap .deposit-bar-track { flex: 1; height: 4px; }
+.pay-action-bar-label { font-size: 11px; color: var(--muted); white-space: nowrap; }
+
+.pay-action-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+.pay-action-suggest   { font-size: 16px; font-weight: 800; color: var(--text); }
+.pay-action-verb      { font-size: 10px; color: var(--muted); white-space: nowrap; }
+.pay-action-remaining { font-size: 11px; color: var(--muted); }
 
 /* ── Category toggle (Bill / Expense) ───────────────── */
 .category-toggle {

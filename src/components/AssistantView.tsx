@@ -44,10 +44,9 @@ function predictWeeklyIncome(history: PaycheckRecord[]): number | null {
   return past.reduce((s, r) => s + r.gross, 0) / past.length;
 }
 
-function priorityTier(p: Priority): 'essential' | 'flexible' | 'discretionary' {
-  if (p.type === 'fixed')      return 'essential';
-  if (p.type === 'percentage') return 'flexible';
-  return 'discretionary';
+// Top 4 priorities (by position) are essential — everything else is good-to-have
+function priorityTier(index: number): 'essential' | 'good-to-have' {
+  return index < 4 ? 'essential' : 'good-to-have';
 }
 
 // Find how much has been deposited toward a bill in its current active period
@@ -86,15 +85,6 @@ function getActiveDeposited(bill: Bill): number {
   return (bill.deposits ?? {})[periodKey] ?? 0;
 }
 
-interface UpcomingBill {
-  bill:       Bill;
-  dueDate:    Date;
-  periodKey:  string;
-  deposited:  number;
-  remaining:  number;
-  paid:       boolean;
-}
-
 function billPeriodKey(bill: Bill, d: Date): string {
   const y  = d.getFullYear();
   const mo = String(d.getMonth() + 1).padStart(2, '0');
@@ -104,113 +94,177 @@ function billPeriodKey(bill: Bill, d: Date): string {
   return `${y}-${mo}-${dd}`;
 }
 
-function billsDueSoon(bills: Bill[]): UpcomingBill[] {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const lookahead = new Date(today);
-  lookahead.setDate(today.getDate() + 7);
+// First occurrence of a bill within [from, max] (both inclusive)
+function findBillOccurrence(bill: Bill, from: Date, max: Date): Date | null {
+  if (bill.recurrence === 'one-time' && bill.dueDate) {
+    const d = new Date(bill.dueDate + 'T00:00:00');
+    return d >= from && d <= max ? d : null;
+  }
+  if (bill.recurrence === 'monthly') {
+    for (let mo = -2; mo <= 3; mo++) {
+      const d = new Date(from.getFullYear(), from.getMonth() + mo, bill.dueDay);
+      if (d >= from && d <= max) return d;
+    }
+    return null;
+  }
+  if (bill.recurrence === 'yearly' && bill.dueMonth && bill.dueDay) {
+    for (let yr = -1; yr <= 2; yr++) {
+      const d = new Date(from.getFullYear() + yr, bill.dueMonth - 1, bill.dueDay);
+      if (d >= from && d <= max) return d;
+    }
+    return null;
+  }
+  if (bill.recurrence === 'quarterly' && bill.startDate) {
+    let d = new Date(bill.startDate + 'T00:00:00'); d.setHours(0,0,0,0);
+    while (d < from) { const n = new Date(d.getFullYear(), d.getMonth() + 3, d.getDate()); if (n > from) break; d = n; }
+    for (let i = 0; i < 6; i++) {
+      if (d >= from && d <= max) return d;
+      d = new Date(d.getFullYear(), d.getMonth() + 3, d.getDate());
+      if (d > max) break;
+    }
+    return null;
+  }
+  if (bill.startDate && ['weekly','fortnightly','interval'].includes(bill.recurrence)) {
+    const step = bill.recurrence === 'weekly' ? 7 : bill.recurrence === 'fortnightly' ? 14 : (bill.intervalDays ?? 1);
+    let d = new Date(bill.startDate + 'T00:00:00'); d.setHours(0,0,0,0);
+    if (d > max) return null;
+    while (d < from) d.setDate(d.getDate() + step);
+    return d <= max ? new Date(d) : null;
+  }
+  return null;
+}
 
-  const results: UpcomingBill[] = [];
+type PayTag = 'overdue' | 'this-week' | 'quick-win' | 'this-month' | 'next-month';
+const PAY_TAG_ORDER: PayTag[] = ['overdue', 'this-week', 'quick-win', 'this-month', 'next-month'];
 
-  for (const b of bills) {
-    const candidates: Date[] = [];
+interface PayAction {
+  key:       string;
+  tag:       PayTag;
+  name:      string;
+  suggest:   number;   // recommended amount to move NOW
+  remaining: number;   // total still owed for this period
+  dueStr:    string;
+  color:     string;
+  source:    'bill' | 'loan';
+  deposited: number;
+  total:     number;
+  subLabel:  string;   // context shown under name
+}
 
-    if (b.recurrence === 'one-time' && b.dueDate) {
-      candidates.push(new Date(b.dueDate));
-    } else if (b.recurrence === 'monthly') {
-      const d = new Date(today.getFullYear(), today.getMonth(), b.dueDay);
-      candidates.push(d);
-      candidates.push(new Date(today.getFullYear(), today.getMonth() + 1, b.dueDay));
-    } else if (b.recurrence === 'yearly' && b.dueMonth) {
-      const d = new Date(today.getFullYear(), b.dueMonth - 1, b.dueDay);
-      candidates.push(d);
-      candidates.push(new Date(today.getFullYear() + 1, b.dueMonth - 1, b.dueDay));
-    } else if (b.startDate && (b.recurrence === 'weekly' || b.recurrence === 'fortnightly' || b.recurrence === 'interval')) {
-      const step =
-        b.recurrence === 'weekly'      ? 7 :
-        b.recurrence === 'fortnightly' ? 14 :
-        (b.intervalDays ?? 1);
-      let d = new Date(b.startDate);
-      d.setHours(0, 0, 0, 0);
-      while (d <= lookahead) {
-        if (d >= today) candidates.push(new Date(d));
-        d.setDate(d.getDate() + step);
-      }
-    } else if (b.recurrence === 'quarterly' && b.startDate) {
-      let d = new Date(b.startDate);
-      d.setHours(0, 0, 0, 0);
-      while (d <= lookahead) {
-        if (d >= today) candidates.push(new Date(d));
-        d.setMonth(d.getMonth() + 3);
+function buildPaymentPlan(bills: Bill[], loans: Loan[]): PayAction[] {
+  const today        = new Date(); today.setHours(0,0,0,0);
+  const yesterday    = new Date(today); yesterday.setDate(today.getDate() - 1);
+  const past30       = new Date(today); past30.setDate(today.getDate() - 30);
+  const in7          = new Date(today); in7.setDate(today.getDate() + 7);
+  const endThisMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+  const endNextMonth = new Date(today.getFullYear(), today.getMonth() + 2, 0);
+
+  const actions: PayAction[] = [];
+
+  // ── Bills ──
+  for (const bill of bills) {
+    if (bill.amount <= 0) continue;
+
+    // Overdue: find most recent unpaid occurrence in the past 30 days
+    const pastOcc = findBillOccurrence(bill, past30, yesterday);
+    if (pastOcc) {
+      const pKey      = billPeriodKey(bill, pastOcc);
+      const deposited = (bill.deposits ?? {})[pKey] ?? 0;
+      const paid      = bill.paidPeriods.includes(pKey) || deposited >= bill.amount;
+      if (!paid) {
+        const remaining = Math.max(0, bill.amount - deposited);
+        actions.push({
+          key: `bill-${bill.id}-ov`, tag: 'overdue',
+          name: bill.name, suggest: remaining, remaining,
+          dueStr: fmtDate(pastOcc), color: bill.color, source: 'bill',
+          deposited, total: bill.amount,
+          subLabel: `was due ${fmtDate(pastOcc)} · ${bill.recurrence}`,
+        });
+        continue;
       }
     }
 
-    for (const c of candidates) {
-      c.setHours(0, 0, 0, 0);
-      if (c >= today && c <= lookahead) {
-        const periodKey = billPeriodKey(b, c);
-        const deposited = (b.deposits ?? {})[periodKey] ?? 0;
-        const paid      = b.paidPeriods.includes(periodKey) || (b.amount > 0 && deposited >= b.amount);
-        const remaining = Math.max(0, b.amount - deposited);
-        results.push({ bill: b, dueDate: c, periodKey, deposited, remaining, paid });
-        break;
-      }
-    }
+    // Upcoming occurrence
+    const upOcc = findBillOccurrence(bill, today, endNextMonth);
+    if (!upOcc) continue;
+    const pKey      = billPeriodKey(bill, upOcc);
+    const deposited = (bill.deposits ?? {})[pKey] ?? 0;
+    const paid      = bill.paidPeriods.includes(pKey) || deposited >= bill.amount;
+    if (paid) continue;
+    const remaining = Math.max(0, bill.amount - deposited);
+
+    const isThisWeek  = upOcc <= in7;
+    const isQuickWin  = !isThisWeek && (remaining <= 30 || (deposited > 0 && remaining <= bill.amount * 0.15));
+    const isThisMonth = !isThisWeek && !isQuickWin && upOcc <= endThisMonth;
+
+    const tag: PayTag = isThisWeek ? 'this-week' : isQuickWin ? 'quick-win' : isThisMonth ? 'this-month' : 'next-month';
+
+    const days    = Math.round((upOcc.getTime() - today.getTime()) / 86400000);
+    const dayStr  = days === 0 ? 'due today' : days === 1 ? 'due tomorrow' : `due in ${days} days`;
+    const suggest = (tag === 'this-week' || tag === 'quick-win')
+      ? remaining
+      : Math.min(remaining, bill.amount / WKPM);
+
+    actions.push({
+      key: `bill-${bill.id}`, tag,
+      name: bill.name, suggest, remaining,
+      dueStr: fmtDate(upOcc), color: bill.color, source: 'bill',
+      deposited, total: bill.amount,
+      subLabel: `${dayStr} — ${fmtDate(upOcc)} · ${bill.recurrence}`,
+    });
   }
 
-  // Unpaid first (soonest due), paid at the bottom
-  return results.sort((a, b) => {
-    if (a.paid !== b.paid) return a.paid ? 1 : -1;
-    return a.dueDate.getTime() - b.dueDate.getTime();
-  });
-}
-
-interface UpcomingInstallment {
-  loan:      Loan;
-  insId:     string;
-  dueDate:   Date;
-  amount:    number;
-  paid:      boolean;
-  overdue:   boolean;
-}
-
-function loansDueSoon(loans: Loan[]): UpcomingInstallment[] {
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const horizon = new Date(today); horizon.setDate(today.getDate() + 7);
-  const results: UpcomingInstallment[] = [];
+  // ── Pay-in-4 loan installments (only the next unpaid one per loan) ──
   for (const loan of loans) {
     if (loan.completed || loan.type !== 'pay-in-4' || !loan.installments) continue;
-    for (const ins of loan.installments) {
-      if (ins.paid) continue;
-      const d = new Date(ins.dueDate + 'T00:00:00');
-      if (d <= horizon) {
-        results.push({
-          loan, insId: ins.id, dueDate: d, amount: ins.amount,
-          paid: false, overdue: d < today,
-        });
-      }
-    }
-  }
-  return results.sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime());
-}
+    const unpaid = loan.installments.filter(i => !i.paid).sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+    if (unpaid.length === 0) continue;
+    const ins        = unpaid[0];
+    const d          = new Date(ins.dueDate + 'T00:00:00');
+    const paidCount  = loan.installments.filter(i => i.paid).length;
+    const totalCount = loan.installments.length;
+    const days       = Math.round((d.getTime() - today.getTime()) / 86400000);
+    const dayStr     = d < today ? `overdue — was due ${ins.dueDate}` : days === 0 ? 'due today' : days === 1 ? 'due tomorrow' : `due in ${days} days`;
 
-function activeCustomLoans(loans: Loan[]): { loan: Loan; remaining: number }[] {
-  return loans
-    .filter(l => !l.completed && l.type === 'custom')
-    .map(l => ({
-      loan: l,
-      remaining: Math.max(0, l.totalAmount - l.payments.reduce((s, p) => s + p.amount, 0)),
-    }))
-    .filter(x => x.remaining > 0);
+    const tag: PayTag = d < today ? 'overdue' : d <= in7 ? 'this-week' : d <= endThisMonth ? 'this-month' : 'next-month';
+
+    actions.push({
+      key: `loan-p4-${loan.id}-${ins.id}`, tag,
+      name: loan.name, suggest: ins.amount, remaining: ins.amount,
+      dueStr: ins.dueDate, color: loan.color, source: 'loan',
+      deposited: paidCount, total: totalCount,
+      subLabel: `${dayStr} · installment ${paidCount + 1}/${totalCount}`,
+    });
+  }
+
+  // ── Custom loans ──
+  for (const loan of loans) {
+    if (loan.completed || loan.type !== 'custom') continue;
+    const paidAmt   = loan.payments.reduce((s, p) => s + p.amount, 0);
+    const remaining = Math.max(0, loan.totalAmount - paidAmt);
+    if (remaining <= 0) continue;
+
+    const tag: PayTag   = remaining <= 50 ? 'quick-win' : 'this-month';
+    const suggest       = tag === 'quick-win' ? remaining : Math.min(remaining, loan.totalAmount / (WKPM * 2));
+    const pct           = Math.round((paidAmt / loan.totalAmount) * 100);
+
+    actions.push({
+      key: `loan-custom-${loan.id}`, tag,
+      name: loan.name, suggest: Math.min(suggest, remaining), remaining,
+      dueStr: 'flexible', color: loan.color, source: 'loan',
+      deposited: paidAmt, total: loan.totalAmount,
+      subLabel: `custom repayment · ${pct}% paid off`,
+    });
+  }
+
+  return actions.sort((a, b) => PAY_TAG_ORDER.indexOf(a.tag) - PAY_TAG_ORDER.indexOf(b.tag));
 }
 
 export function AssistantView({ history, priorities, bills, goals, loans }: Props) {
-  const record        = getThisWeekPaycheck(history);
-  const upcoming      = billsDueSoon(bills);
-  const activeGoals   = goals.filter(g => !g.completed);
-  const upcomingLoans = loansDueSoon(loans);
-  const customLoans   = activeCustomLoans(loans);
-  const predicted     = predictWeeklyIncome(history);
+  const record      = getThisWeekPaycheck(history);
+  const activeGoals = goals.filter(g => !g.completed);
+  const predicted   = predictWeeklyIncome(history);
+  const paymentPlan = buildPaymentPlan(bills, loans);
 
   // No paycheck this week — show prediction + preview allocation
   if (!record) {
@@ -246,7 +300,7 @@ export function AssistantView({ history, priorities, bills, goals, loans }: Prop
             </h3>
             <div className="guide-steps">
               {previewResult.lines.map((line, i) => {
-                const tier = priorityTier(line.priority);
+                const tier = priorityTier(i);
                 return (
                   <div key={line.priority.id} className={`guide-step${line.shortfall ? ' guide-step-warn' : ''}`}>
                     <span className="guide-step-num">{i + 1}</span>
@@ -254,7 +308,7 @@ export function AssistantView({ history, priorities, bills, goals, loans }: Prop
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <span className="guide-step-name">{line.priority.name}</span>
                         <span className={`guide-tier-badge guide-tier-${tier}`}>
-                          {tier === 'essential' ? 'Essential' : tier === 'flexible' ? 'Flexible' : 'Discretionary'}
+                          {tier === 'essential' ? 'Essential' : 'Good to have'}
                         </span>
                       </div>
                       <span className={`guide-step-amount${line.shortfall ? ' shortfall' : ''}`}>
@@ -295,9 +349,9 @@ export function AssistantView({ history, priorities, bills, goals, loans }: Prop
   const isGoodWeek = predicted !== null && gross >= predicted;
   const delta      = predicted !== null ? gross - predicted : null;
 
-  // Non-essential priorities the user should hold off on this low week
+  // Non-essential priorities the user should hold off on this low week (positions 4+)
   const holdOffLines = isLowWeek
-    ? result.lines.filter(l => priorityTier(l.priority) !== 'essential' && l.allocated > 0)
+    ? result.lines.filter((l, i) => i >= 4 && l.allocated > 0)
     : [];
 
   // Map linkKey → deposited amount for the current active period of each bill
@@ -355,8 +409,8 @@ export function AssistantView({ history, priorities, bills, goals, loans }: Prop
             <div className="guide-tight-list">
               {holdOffLines.map(l => (
                 <div key={l.priority.id} className="guide-tight-row">
-                  <span className={`guide-tier-badge guide-tier-${priorityTier(l.priority)}`}>
-                    {priorityTier(l.priority) === 'flexible' ? 'Flexible' : 'Discretionary'}
+                  <span className="guide-tier-badge guide-tier-good-to-have">
+                    Good to have
                   </span>
                   <span className="guide-tight-name">{l.priority.name}</span>
                   <span className="guide-tight-amount">${l.allocated.toFixed(2)}</span>
@@ -364,7 +418,7 @@ export function AssistantView({ history, priorities, bills, goals, loans }: Prop
               ))}
             </div>
             <p className="guide-tight-note">
-              Your essentials (Rent, Bills, Loans) are still fully covered. Resume normal contributions next week.
+              Your top 4 priorities are still fully covered. Resume normal contributions next week.
             </p>
           </div>
         </div>
@@ -380,7 +434,7 @@ export function AssistantView({ history, priorities, bills, goals, loans }: Prop
               const deposited   = depositMap.get(lk) ?? 0;
               const expectedPct = Math.min(100, Math.max(0, line.pct));
               const actualPct   = gross > 0 ? Math.min(100, (deposited / gross) * 100) : 0;
-              const tier        = priorityTier(line.priority);
+              const tier        = priorityTier(i);
               const isDimmed    = isLowWeek && tier !== 'essential';
               return (
               <div key={line.priority.id} className={`guide-step${line.shortfall ? ' guide-step-warn' : ''}${isDimmed ? ' guide-step-dimmed' : ''}`}>
@@ -389,7 +443,7 @@ export function AssistantView({ history, priorities, bills, goals, loans }: Prop
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                     <span className="guide-step-name">{line.priority.name}</span>
                     <span className={`guide-tier-badge guide-tier-${tier}`}>
-                      {tier === 'essential' ? 'Essential' : tier === 'flexible' ? 'Flexible' : 'Discretionary'}
+                      {tier === 'essential' ? 'Essential' : 'Good to have'}
                     </span>
                   </div>
                   <span className={`guide-step-amount${line.shortfall ? ' shortfall' : ''}`}>
@@ -465,118 +519,74 @@ export function AssistantView({ history, priorities, bills, goals, loans }: Prop
         </div>
       )}
 
-      {/* ── Upcoming loan installments ── */}
-      {(upcomingLoans.length > 0 || customLoans.length > 0) && (
-        <div className="card">
-          <h3 className="section-title">Loans & Repayments</h3>
-          <div className="guide-bills">
-
-            {upcomingLoans.map(({ loan, insId, dueDate, amount, overdue }) => {
-              const today = new Date(); today.setHours(0, 0, 0, 0);
-              const days  = Math.round((dueDate.getTime() - today.getTime()) / 86400000);
-              const paidCount   = loan.installments!.filter(i => i.paid).length;
-              const totalCount  = loan.installments!.length;
-              return (
-                <div key={`${loan.id}-${insId}`} className={`guide-bill-row${overdue ? ' guide-bill-overdue' : ''}`}>
-                  <div className="guide-bill-dot" style={{ background: loan.color }} />
-                  <div className="guide-bill-info">
-                    <span className="guide-bill-name">{loan.name}</span>
-                    <span className="guide-bill-when">
-                      {overdue
-                        ? `Overdue — was due ${fmtDate(dueDate)}`
-                        : days === 0 ? `Due today — ${fmtDate(dueDate)}`
-                        : days === 1 ? `Due tomorrow — ${fmtDate(dueDate)}`
-                        : `Due in ${days} days — ${fmtDate(dueDate)}`}
-                      {' · '}{paidCount}/{totalCount} paid
-                    </span>
-                  </div>
-                  <span className="guide-bill-amount" style={{ color: overdue ? 'var(--red)' : undefined }}>
-                    ${amount.toFixed(2)}
-                  </span>
-                </div>
-              );
-            })}
-
-            {customLoans.map(({ loan, remaining }) => {
-              const paidSoFar = loan.payments.reduce((s, p) => s + p.amount, 0);
-              const pct       = loan.totalAmount > 0 ? Math.min(100, (paidSoFar / loan.totalAmount) * 100) : 0;
-              return (
-                <div key={loan.id} className="guide-bill-row">
-                  <div className="guide-bill-dot" style={{ background: loan.color }} />
-                  <div className="guide-bill-info">
-                    <span className="guide-bill-name">{loan.name}</span>
-                    <span className="guide-bill-when">Custom repayment · {pct.toFixed(0)}% paid off</span>
-                    <div className="guide-bill-progress">
-                      <div className="guide-bar-track">
-                        <div className="guide-bar-fill" style={{ width: `${pct}%`, background: loan.color }} />
-                      </div>
-                      <span className="guide-bill-prog-label">
-                        ${paidSoFar.toFixed(2)} of ${loan.totalAmount.toFixed(2)} paid
-                      </span>
-                    </div>
-                  </div>
-                  <span className="guide-bill-amount">
-                    <span style={{ color: 'var(--red)' }}>${remaining.toFixed(2)}</span>
-                    <span className="guide-bill-remaining"> left</span>
-                  </span>
-                </div>
-              );
-            })}
-
-          </div>
-        </div>
-      )}
-
-      {/* ── Upcoming bills ── */}
+      {/* ── Payment plan ── */}
       <div className="card">
-        <h3 className="section-title">Bills due in the next 7 days</h3>
-        {upcoming.length === 0 ? (
-          <p className="empty-hint">No bills due in the next 7 days.</p>
-        ) : (
-          <div className="guide-bills">
-            {upcoming.map(({ bill, dueDate, deposited, remaining, paid }) => {
-              const today = new Date();
-              today.setHours(0, 0, 0, 0);
-              const days    = Math.round((dueDate.getTime() - today.getTime()) / 86400000);
-              const hasProg = bill.amount > 0 && deposited > 0;
-              const pct     = bill.amount > 0 ? Math.min(100, (deposited / bill.amount) * 100) : 0;
-              return (
-                <div key={bill.id} className={`guide-bill-row${paid ? ' guide-bill-paid' : ''}`}>
-                  <div className="guide-bill-dot" style={{ background: bill.color }} />
-                  <div className="guide-bill-info">
-                    <span className="guide-bill-name">{bill.name}</span>
-                    <span className="guide-bill-when">
-                      {paid
-                        ? `Paid — due ${fmtDate(dueDate)}`
-                        : days === 0 ? `Due today — ${fmtDate(dueDate)}`
-                        : days === 1 ? `Due tomorrow — ${fmtDate(dueDate)}`
-                        : `Due in ${days} days — ${fmtDate(dueDate)}`}
-                    </span>
-                    {hasProg && !paid && (
-                      <div className="guide-bill-progress">
-                        <div className="guide-bar-track">
-                          <div className="guide-bar-fill" style={{ width: `${pct}%` }} />
+        <h3 className="section-title">Payment plan</h3>
+        {paymentPlan.length === 0 ? (
+          <p className="empty-hint">No upcoming bills or loans.</p>
+        ) : (() => {
+          // Group by tag and render with section headers
+          const groups: { tag: PayTag; label: string; items: PayAction[] }[] = [
+            { tag: 'overdue',    label: 'Overdue',         items: [] },
+            { tag: 'this-week',  label: 'This week',       items: [] },
+            { tag: 'quick-win',  label: 'Quick wins',      items: [] },
+            { tag: 'this-month', label: 'This month',      items: [] },
+            { tag: 'next-month', label: 'Heads up',        items: [] },
+          ];
+          for (const action of paymentPlan) {
+            groups.find(g => g.tag === action.tag)!.items.push(action);
+          }
+          return (
+            <div className="pay-plan-list">
+              {groups.filter(g => g.items.length > 0).map((group, gi) => (
+                <div key={group.tag}>
+                  {gi > 0 && <div className="pay-plan-divider" />}
+                  <div className={`pay-plan-group-label pay-tag-${group.tag}`}>{group.label}</div>
+                  {group.items.map(action => {
+                    const pct        = action.total > 0 ? Math.min(100, (action.deposited / action.total) * 100) : 0;
+                    const showBar    = action.source === 'bill' ? action.deposited > 0 && action.total > 0 : action.source === 'loan' && action.tag !== 'this-week' && action.tag !== 'overdue';
+                    const isPayAll   = Math.abs(action.suggest - action.remaining) < 0.01;
+                    // For p4 loans the deposited/total are installment counts, not amounts
+                    const isP4Loan   = action.source === 'loan' && action.total <= 4 && Number.isInteger(action.total);
+                    return (
+                      <div key={action.key} className={`pay-action-row pay-action-${action.tag}`}>
+                        <div className="pay-action-left">
+                          <div className="pay-action-top">
+                            <span className="pay-action-dot" style={{ background: action.color }} />
+                            <span className="pay-action-name">{action.name}</span>
+                            <span className={`pay-tag-chip pay-tag-${action.tag}`}>
+                              {group.label}
+                            </span>
+                          </div>
+                          <span className="pay-action-sub">{action.subLabel}</span>
+                          {showBar && !isP4Loan && (
+                            <div className="pay-action-bar-wrap">
+                              <div className="deposit-bar-track">
+                                <div className="deposit-bar-fill" style={{ width: `${pct}%`, background: action.color }} />
+                              </div>
+                              <span className="pay-action-bar-label">
+                                ${action.deposited.toFixed(2)} of ${action.total.toFixed(2)}
+                              </span>
+                            </div>
+                          )}
                         </div>
-                        <span className="guide-bill-prog-label">
-                          ${deposited.toFixed(2)} of ${bill.amount.toFixed(2)} deposited
-                        </span>
+                        <div className="pay-action-right">
+                          <span className="pay-action-suggest">${action.suggest.toFixed(2)}</span>
+                          <span className="pay-action-verb">
+                            {isPayAll ? 'to clear' : 'to set aside'}
+                          </span>
+                          {!isPayAll && (
+                            <span className="pay-action-remaining">${action.remaining.toFixed(2)} total</span>
+                          )}
+                        </div>
                       </div>
-                    )}
-                  </div>
-                  <span className="guide-bill-amount">
-                    {paid
-                      ? <span style={{ color: 'var(--green)', fontWeight: 700 }}>✓ Paid</span>
-                      : bill.amount > 0
-                      ? (deposited > 0
-                          ? <><span style={{ color: 'var(--green)' }}>${remaining.toFixed(2)}</span><span className="guide-bill-remaining"> left</span></>
-                          : `$${bill.amount.toFixed(2)}`)
-                      : '—'}
-                  </span>
+                    );
+                  })}
                 </div>
-              );
-            })}
-          </div>
-        )}
+              ))}
+            </div>
+          );
+        })()}
       </div>
 
     </div>
