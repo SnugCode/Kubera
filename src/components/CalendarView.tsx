@@ -63,9 +63,10 @@ function dateKey(year: number, month: number, day: number): string {
 }
 
 function billPaidKey(bill: Bill, year: number, month: number, day: number): string {
-  if (bill.recurrence === 'monthly')  return `${year}-${String(month + 1).padStart(2, '0')}`;
-  if (bill.recurrence === 'yearly')   return `${year}`;
-  return dateKey(year, month, day);  // interval and one-time use the specific date
+  if (bill.recurrence === 'monthly' || bill.recurrence === 'quarterly')
+    return `${year}-${String(month + 1).padStart(2, '0')}`;
+  if (bill.recurrence === 'yearly') return `${year}`;
+  return dateKey(year, month, day);  // fortnightly, interval, one-time use the specific date
 }
 
 function priorityPaidKey(year: number, month: number): string {
@@ -74,6 +75,18 @@ function priorityPaidKey(year: number, month: number): string {
 
 function isBillDue(bill: Bill, year: number, month: number, day: number): boolean {
   if (bill.recurrence === 'monthly') return bill.dueDay === day;
+  if (bill.recurrence === 'fortnightly' && bill.startDate) {
+    const start  = new Date(bill.startDate + 'T00:00:00');
+    const target = new Date(year, month, day);
+    const diff   = target.getTime() - start.getTime();
+    if (diff < 0) return false;
+    return Math.round(diff / 86_400_000) % 14 === 0;
+  }
+  if (bill.recurrence === 'quarterly' && bill.startDate) {
+    const start = new Date(bill.startDate + 'T00:00:00');
+    const monthDiff = (year - start.getFullYear()) * 12 + (month - start.getMonth());
+    return monthDiff >= 0 && monthDiff % 3 === 0 && day === start.getDate();
+  }
   if (bill.recurrence === 'yearly')  return bill.dueMonth === month + 1 && bill.dueDay === day;
   if (bill.recurrence === 'one-time' && bill.dueDate) {
     const d = new Date(bill.dueDate + 'T00:00:00');
@@ -109,9 +122,11 @@ function buildMonthEvents(
         amount: bill.amount,
         color: bill.color,
         day: d,
-        meta: bill.recurrence === 'monthly'  ? 'monthly'
-            : bill.recurrence === 'yearly'   ? 'yearly'
-            : bill.recurrence === 'interval' ? `every ${bill.intervalDays}d`
+        meta: bill.recurrence === 'monthly'      ? 'monthly'
+            : bill.recurrence === 'fortnightly' ? 'fortnightly'
+            : bill.recurrence === 'quarterly'   ? 'quarterly'
+            : bill.recurrence === 'yearly'      ? 'yearly'
+            : bill.recurrence === 'interval'    ? `every ${bill.intervalDays}d`
             : 'one-time',
         paid: bill.paidPeriods.includes(billPaidKey(bill, year, month, d)),
         source: 'bill',
@@ -193,8 +208,10 @@ export function CalendarView({ bills, onChange, priorities, onPrioritiesChange }
     if (!form.name.trim()) return;
     if (form.recurrence === 'monthly'  && !form.dueDay)  return;
     if (form.recurrence === 'yearly'   && (!form.dueMonth || !form.dueDay)) return;
-    if (form.recurrence === 'one-time' && !form.dueDate) return;
-    if (form.recurrence === 'interval' && (!form.startDate || !form.intervalDays)) return;
+    if (form.recurrence === 'one-time'    && !form.dueDate) return;
+    if (form.recurrence === 'fortnightly' && !form.startDate) return;
+    if (form.recurrence === 'quarterly'   && !form.startDate) return;
+    if (form.recurrence === 'interval'    && (!form.startDate || !form.intervalDays)) return;
 
     onChange([
       ...bills,
@@ -206,7 +223,7 @@ export function CalendarView({ bills, onChange, priorities, onPrioritiesChange }
         dueDay:       parseInt(form.dueDay) || 1,
         dueMonth:     form.recurrence === 'yearly'   ? parseInt(form.dueMonth) : undefined,
         dueDate:      form.recurrence === 'one-time' ? form.dueDate : undefined,
-        startDate:    form.recurrence === 'interval' ? form.startDate : undefined,
+        startDate:    (['interval', 'fortnightly', 'quarterly'] as BillRecurrence[]).includes(form.recurrence) ? form.startDate : undefined,
         intervalDays: form.recurrence === 'interval' ? parseInt(form.intervalDays) : undefined,
         color:        PALETTE[bills.length % PALETTE.length],
         paidPeriods:  [],
@@ -232,8 +249,10 @@ export function CalendarView({ bills, onChange, priorities, onPrioritiesChange }
     !!form.name.trim() &&
     !(form.recurrence === 'monthly'  && !form.dueDay) &&
     !(form.recurrence === 'yearly'   && (!form.dueMonth || !form.dueDay)) &&
-    !(form.recurrence === 'one-time' && !form.dueDate) &&
-    !(form.recurrence === 'interval' && (!form.startDate || !form.intervalDays));
+    !(form.recurrence === 'one-time'    && !form.dueDate) &&
+    !(form.recurrence === 'fortnightly' && !form.startDate) &&
+    !(form.recurrence === 'quarterly'   && !form.startDate) &&
+    !(form.recurrence === 'interval'    && (!form.startDate || !form.intervalDays));
 
   // Events per day for the grid dots
   function dayEvents(day: number): CalEvent[] {
@@ -372,6 +391,8 @@ export function CalendarView({ bills, onChange, priorities, onPrioritiesChange }
               onChange={(e) => setForm({ ...form, recurrence: e.target.value as BillRecurrence, dueDay: '', dueMonth: '', dueDate: '', startDate: '', intervalDays: '' })}
             >
               <option value="monthly">Monthly — repeats every month</option>
+              <option value="fortnightly">Fortnightly — repeats every 2 weeks</option>
+              <option value="quarterly">Quarterly — repeats every 3 months</option>
               <option value="yearly">Yearly — repeats every year</option>
               <option value="interval">Every N days — e.g. every 28 days</option>
               <option value="one-time">One-time — specific date</option>
@@ -428,6 +449,17 @@ export function CalendarView({ bills, onChange, priorities, onPrioritiesChange }
                 </div>
               </div>
             )}
+            {(form.recurrence === 'fortnightly' || form.recurrence === 'quarterly') && (
+              <div>
+                <label className="form-label">First occurrence date</label>
+                <input
+                  className="form-input"
+                  type="date"
+                  value={form.startDate}
+                  onChange={(e) => setForm({ ...form, startDate: e.target.value })}
+                />
+              </div>
+            )}
             {form.recurrence === 'interval' && (
               <div className="two-col">
                 <div>
@@ -479,8 +511,12 @@ export function CalendarView({ bills, onChange, priorities, onPrioritiesChange }
                 <div className="bill-info">
                   <span className="bill-name">{b.name}</span>
                   <span className="bill-meta">
-                    {b.recurrence === 'monthly'  && `Monthly · due day ${b.dueDay}`}
-                    {b.recurrence === 'yearly'   && `Yearly · ${MONTH_SHORT[(b.dueMonth ?? 1) - 1]} ${b.dueDay}`}
+                    {b.recurrence === 'monthly'      && `Monthly · due day ${b.dueDay}`}
+                    {b.recurrence === 'fortnightly' && b.startDate &&
+                      `Fortnightly · from ${new Date(b.startDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`}
+                    {b.recurrence === 'quarterly' && b.startDate &&
+                      `Quarterly · from ${new Date(b.startDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`}
+                    {b.recurrence === 'yearly'    && `Yearly · ${MONTH_SHORT[(b.dueMonth ?? 1) - 1]} ${b.dueDay}`}
                     {b.recurrence === 'one-time' && b.dueDate &&
                       `One-time · ${new Date(b.dueDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`}
                     {b.recurrence === 'interval' && b.startDate && b.intervalDays &&

@@ -29,7 +29,7 @@ export interface PaycheckRecord {
   result: AllocationResult;
 }
 
-export type BillRecurrence = 'monthly' | 'yearly' | 'one-time' | 'interval';
+export type BillRecurrence = 'monthly' | 'fortnightly' | 'quarterly' | 'yearly' | 'one-time' | 'interval';
 
 export interface Bill {
   id: string;
