@@ -7,8 +7,14 @@ interface Props {
   onSave: (record: PaycheckRecord) => void;
 }
 
+function todayStr() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 export function PaycheckView({ priorities, onSave }: Props) {
   const [input, setInput] = useState('');
+  const [date, setDate]   = useState(todayStr);
 
   const gross = parseFloat(input) || 0;
   const result = gross > 0 ? allocate(gross, priorities) : { lines: [], unallocated: 0 };
@@ -17,12 +23,13 @@ export function PaycheckView({ priorities, onSave }: Props) {
   function handleSave() {
     if (gross <= 0) return;
     onSave({
-      id: crypto.randomUUID(),
-      date: new Date().toISOString(),
+      id:   crypto.randomUUID(),
+      date: new Date(date + 'T12:00:00').toISOString(),
       gross,
       result,
     });
     setInput('');
+    setDate(todayStr());
   }
 
   return (
@@ -40,6 +47,15 @@ export function PaycheckView({ priorities, onSave }: Props) {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             autoFocus
+          />
+        </div>
+        <div className="date-row">
+          <label className="date-label">Paycheck date</label>
+          <input
+            className="date-input"
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
           />
         </div>
       </div>

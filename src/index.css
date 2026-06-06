@@ -192,6 +192,33 @@ body {
 
 .amount-input::placeholder { color: var(--border); }
 
+.date-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+  gap: 12px;
+}
+
+.date-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.date-input {
+  padding: 7px 10px;
+  border: 1.5px solid var(--border);
+  border-radius: 9px;
+  font-size: 14px;
+  color: var(--text);
+  background: white;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.date-input:focus { border-color: var(--green); }
+
 /* ── Allocation ──────────────────────────────────────── */
 .warning {
   background: #fff8e1;
