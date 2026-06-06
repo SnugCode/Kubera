@@ -4,9 +4,10 @@ import { PaycheckView } from './components/PaycheckView';
 import { PrioritiesView } from './components/PrioritiesView';
 import { GoalsView } from './components/GoalsView';
 import { CalendarView } from './components/CalendarView';
+import { AssistantView } from './components/AssistantView';
 import type { Priority, PaycheckRecord, Goal, Bill } from './types';
 
-type View = 'paycheck' | 'priorities' | 'goals' | 'calendar';
+type View = 'paycheck' | 'priorities' | 'goals' | 'calendar' | 'assistant';
 
 export default function App() {
   const [ready, setReady]           = useState(false);
@@ -115,6 +116,12 @@ export default function App() {
             Bills
             {bills.length > 0 && <span className="nav-badge">{bills.length}</span>}
           </button>
+          <button
+            className={`nav-btn${view === 'assistant' ? ' active' : ''}`}
+            onClick={() => setView('assistant')}
+          >
+            Assistant
+          </button>
         </nav>
       </div>
 
@@ -132,6 +139,14 @@ export default function App() {
         )}
         {view === 'goals' && (
           <GoalsView goals={goals} onChange={handleGoalsChange} bills={bills} priorities={priorities} />
+        )}
+        {view === 'assistant' && (
+          <AssistantView
+            history={history}
+            priorities={priorities}
+            bills={bills}
+            goals={goals}
+          />
         )}
         {view === 'calendar' && (
           <CalendarView

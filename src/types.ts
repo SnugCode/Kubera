@@ -45,6 +45,7 @@ export interface Bill {
   intervalDays?: number;   // for interval: e.g. 28
   color: string;
   paidPeriods: string[];   // 'YYYY-MM' monthly · 'YYYY' yearly · 'YYYY-MM-DD' interval/one-time
+  deposits?: Record<string, number>; // period key → cumulative deposited amount
 }
 
 export interface Goal {

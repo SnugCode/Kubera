@@ -22,6 +22,7 @@ interface CalEvent {
   day: number;
   meta: string;
   paid: boolean;
+  deposited: number;   // cumulative deposited this period (bills only)
   source: 'bill' | 'priority';
   billRef?: Bill;
   priorityRef?: Priority;
@@ -124,26 +125,42 @@ function buildMonthEvents(
   const events: CalEvent[] = [];
   const daysInMonth = new Date(year, month + 1, 0).getDate();
 
-  // Bills
-  for (let d = 1; d <= daysInMonth; d++) {
-    for (const bill of bills) {
+  // Bills — collect all occurrences per bill, then show paid ones + only the first unpaid
+  for (const bill of bills) {
+    const meta =
+      bill.recurrence === 'weekly'      ? 'weekly'
+      : bill.recurrence === 'fortnightly' ? 'fortnightly'
+      : bill.recurrence === 'monthly'     ? 'monthly'
+      : bill.recurrence === 'quarterly'   ? 'quarterly'
+      : bill.recurrence === 'yearly'      ? 'yearly'
+      : bill.recurrence === 'interval'    ? `every ${bill.intervalDays}d`
+      : 'one-time';
+
+    const occurrences: { day: number; pKey: string; deposited: number; paid: boolean }[] = [];
+    for (let d = 1; d <= daysInMonth; d++) {
       if (!isBillDue(bill, year, month, d)) continue;
+      const pKey      = billPaidKey(bill, year, month, d);
+      const deposited = (bill.deposits ?? {})[pKey] ?? 0;
+      const paid      = bill.paidPeriods.includes(pKey) || (bill.amount > 0 && deposited >= bill.amount);
+      occurrences.push({ day: d, pKey, deposited, paid });
+    }
+
+    // Show all paid occurrences + only the first unpaid one
+    const firstUnpaidIdx = occurrences.findIndex(o => !o.paid);
+    const visible = firstUnpaidIdx === -1 ? occurrences : occurrences.slice(0, firstUnpaidIdx + 1);
+
+    for (const occ of visible) {
       events.push({
-        key: `bill-${bill.id}-${d}`,
-        name: bill.name,
-        amount: bill.amount,
-        color: bill.color,
-        day: d,
-        meta: bill.recurrence === 'weekly'        ? 'weekly'
-            : bill.recurrence === 'fortnightly' ? 'fortnightly'
-            : bill.recurrence === 'monthly'     ? 'monthly'
-            : bill.recurrence === 'quarterly'   ? 'quarterly'
-            : bill.recurrence === 'yearly'      ? 'yearly'
-            : bill.recurrence === 'interval'    ? `every ${bill.intervalDays}d`
-            : 'one-time',
-        paid: bill.paidPeriods.includes(billPaidKey(bill, year, month, d)),
-        source: 'bill',
-        billRef: bill,
+        key:      `bill-${bill.id}-${occ.day}`,
+        name:     bill.name,
+        amount:   bill.amount,
+        color:    bill.color,
+        day:      occ.day,
+        meta,
+        paid:     occ.paid,
+        deposited: occ.deposited,
+        source:   'bill',
+        billRef:  bill,
       });
     }
   }
@@ -160,6 +177,7 @@ function buildMonthEvents(
       day: p.dueDay,
       meta: 'monthly · allocation',
       paid: (p.paidPeriods ?? []).includes(pKey),
+      deposited: 0,
       source: 'priority',
       priorityRef: p,
     });
@@ -172,11 +190,13 @@ function buildMonthEvents(
 
 export function CalendarView({ bills, onChange, priorities, onPrioritiesChange, goals }: Props) {
   const now = new Date();
-  const [year, setYear]         = useState(now.getFullYear());
-  const [month, setMonth]       = useState(now.getMonth());
-  const [selDay, setSelDay]     = useState<number | null>(null);
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm]         = useState<Form>(emptyForm);
+  const [year, setYear]               = useState(now.getFullYear());
+  const [month, setMonth]             = useState(now.getMonth());
+  const [selDay, setSelDay]           = useState<number | null>(null);
+  const [showForm, setShowForm]       = useState(false);
+  const [form, setForm]               = useState<Form>(emptyForm);
+  // per-event deposit input values, keyed by CalEvent.key
+  const [depositInputs, setDepositInputs] = useState<Record<string, string>>({});
 
   function prevMonth() {
     if (month === 0) { setYear((y) => y - 1); setMonth(11); }
@@ -190,12 +210,75 @@ export function CalendarView({ bills, onChange, priorities, onPrioritiesChange, 
     setSelDay(null);
   }
 
+  // Deposit toward a bill for the current period.
+  // Auto-marks paid when cumulative deposits reach the bill amount.
+  function addDeposit(event: CalEvent, raw: string) {
+    const amount = parseFloat(raw);
+    if (!event.billRef || !(amount > 0)) return;
+    const bill       = event.billRef;
+    const periodKey  = billPaidKey(bill, year, month, event.day);
+    const prev       = (bill.deposits ?? {})[periodKey] ?? 0;
+    const newTotal   = prev + amount;
+    const fullyCovered = bill.amount > 0 && newTotal >= bill.amount;
+
+    // Determine whether due date has already passed
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const due   = new Date(year, month, event.day);
+    const isPastDue = due < today;
+
+    const newPaidPeriods = fullyCovered && !bill.paidPeriods.includes(periodKey)
+      ? [...bill.paidPeriods, periodKey]
+      : bill.paidPeriods;
+
+    onChange(bills.map((b) =>
+      b.id !== bill.id ? b : {
+        ...b,
+        deposits:    { ...(b.deposits ?? {}), [periodKey]: newTotal },
+        paidPeriods: newPaidPeriods,
+        // If overdue and now fully paid, advance startDate for interval/weekly/fortnightly to next cycle
+        ...(fullyCovered && isPastDue && b.startDate &&
+          ['weekly', 'fortnightly', 'interval'].includes(b.recurrence) ? {
+          startDate: (() => {
+            const step =
+              b.recurrence === 'weekly'      ? 7 :
+              b.recurrence === 'fortnightly' ? 14 :
+              (b.intervalDays ?? 1);
+            const next = new Date(due);
+            next.setDate(due.getDate() + step);
+            return `${next.getFullYear()}-${String(next.getMonth()+1).padStart(2,'0')}-${String(next.getDate()).padStart(2,'0')}`;
+          })(),
+        } : {}),
+      }
+    ));
+
+    // Clear the input for this event
+    setDepositInputs((prev) => ({ ...prev, [event.key]: '' }));
+
+    // Sync linked priority when bill is newly marked paid
+    if (fullyCovered && !bill.paidPeriods.includes(periodKey)) {
+      const billKey = getLinkKey(bill);
+      const linked  = priorities.find((p) => getLinkKey(p) === billKey);
+      if (linked) {
+        const pKey    = priorityPaidKey(year, month);
+        const already = (linked.paidPeriods ?? []).includes(pKey);
+        if (!already) {
+          onPrioritiesChange(priorities.map((pr) =>
+            pr.id !== linked.id ? pr : {
+              ...pr,
+              paidPeriods: [...(pr.paidPeriods ?? []), pKey],
+            }
+          ));
+        }
+      }
+    }
+  }
+
+  // Toggle paid state for priority events and bills without an amount
   function togglePaid(event: CalEvent) {
     if (event.source === 'bill' && event.billRef) {
-      const bill      = event.billRef;
-      const key       = billPaidKey(bill, year, month, event.day);
+      const bill       = event.billRef;
+      const key        = billPaidKey(bill, year, month, event.day);
       const willBePaid = !bill.paidPeriods.includes(key);
-
       onChange(bills.map((b) =>
         b.id !== bill.id ? b : {
           ...b,
@@ -204,8 +287,7 @@ export function CalendarView({ bills, onChange, priorities, onPrioritiesChange, 
             : b.paidPeriods.filter((k) => k !== key),
         }
       ));
-
-      // Sync paid state to any priority with the same linkKey
+      // Sync linked priority
       const billKey = getLinkKey(bill);
       const linked  = priorities.find((p) => getLinkKey(p) === billKey);
       if (linked) {
@@ -275,7 +357,12 @@ export function CalendarView({ bills, onChange, priorities, onPrioritiesChange, 
   // Derived
   const days       = buildDays(year, month);
   const allEvents  = buildMonthEvents(bills, priorities, year, month);
-  const shown      = selDay ? allEvents.filter((e) => e.day === selDay) : allEvents;
+  const shown      = (selDay ? allEvents.filter((e) => e.day === selDay) : allEvents)
+    .slice()
+    .sort((a, b) => {
+      if (a.paid !== b.paid) return a.paid ? 1 : -1;
+      return b.amount - a.amount;
+    });
   const isNow      = year === now.getFullYear() && month === now.getMonth();
   const totalDue   = allEvents.reduce((s, e) => s + e.amount, 0);
   const totalPaid  = allEvents.filter((e) => e.paid).reduce((s, e) => s + e.amount, 0);
@@ -380,27 +467,86 @@ export function CalendarView({ bills, onChange, priorities, onPrioritiesChange, 
               const linkedPriority = event.source === 'bill' && priorities.some((p) => getLinkKey(p) === ek);
               const linkedBill     = event.source === 'priority' && bills.some((b) => getLinkKey(b) === ek);
               const linkedGoal     = goals.some((g) => getLinkKey(g) === ek);
+              const useDeposit     = event.source === 'bill' && event.amount > 0;
+              const depositPct     = useDeposit ? Math.min(100, (event.deposited / event.amount) * 100) : 0;
+              const today          = new Date(); today.setHours(0,0,0,0);
+              const due            = new Date(year, month, event.day);
+              const isPastDue      = due < today;
+
               return (
-              <div key={event.key} className={`bill-item${event.paid ? ' paid' : ''}`}>
-                <span className="bill-color-dot" style={{ background: event.color }} />
-                <div className="bill-info">
-                  <span className="bill-name">{event.name}</span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
-                    <span className="bill-meta">{MONTH_SHORT[month]} {event.day} · {event.meta}</span>
-                    {linkedPriority && <span className="link-tag priority-link">→ Priority</span>}
-                    {linkedBill     && <span className="link-tag bill-link">→ Bill</span>}
-                    {linkedGoal     && <span className="link-tag goal-link">→ Goal</span>}
+              <div key={event.key} className={`bill-item${event.paid ? ' paid' : ''}${useDeposit ? ' has-deposit' : ''}`}>
+                <div className="bill-item-top">
+                  <span className="bill-color-dot" style={{ background: event.color }} />
+                  <div className="bill-info">
+                    <span className="bill-name">{event.name}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+                      <span className="bill-meta">{MONTH_SHORT[month]} {event.day} · {event.meta}</span>
+                      {linkedPriority && <span className="link-tag priority-link">→ Priority</span>}
+                      {linkedBill     && <span className="link-tag bill-link">→ Bill</span>}
+                      {linkedGoal     && <span className="link-tag goal-link">→ Goal</span>}
+                    </div>
+                  </div>
+
+                  <div className="bill-item-right">
+                    {event.amount > 0 && (
+                      <span className="bill-amount">${event.amount.toFixed(2)}</span>
+                    )}
+                    {!useDeposit && (
+                      <button
+                        className={`pay-btn${event.paid ? ' paid' : ''}`}
+                        onClick={() => togglePaid(event)}
+                      >
+                        {event.paid ? '✓ Paid' : 'Mark paid'}
+                      </button>
+                    )}
+                    {useDeposit && event.paid && (
+                      <span className="deposit-done-label">
+                        {isPastDue ? '✓ Late' : '✓ Paid'}
+                      </span>
+                    )}
+                    {useDeposit && !event.paid && (
+                      <>
+                        <div className="prefixed-input deposit-prefixed">
+                          <span className="prefix">$</span>
+                          <input
+                            className="form-input no-border-left deposit-input"
+                            type="number"
+                            min="0.01"
+                            step="0.01"
+                            placeholder="0.00"
+                            value={depositInputs[event.key] ?? ''}
+                            onChange={(e) => setDepositInputs((prev) => ({ ...prev, [event.key]: e.target.value }))}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') addDeposit(event, depositInputs[event.key] ?? '');
+                            }}
+                          />
+                        </div>
+                        <button
+                          className="deposit-btn"
+                          disabled={!(parseFloat(depositInputs[event.key] ?? '') > 0)}
+                          onClick={() => addDeposit(event, depositInputs[event.key] ?? '')}
+                        >
+                          + Deposit
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
-                {event.amount > 0 && (
-                  <span className="bill-amount">${event.amount.toFixed(2)}</span>
+
+                {useDeposit && (
+                  <div className="deposit-section">
+                    <div className="deposit-progress-row">
+                      <span className="deposit-label">
+                        ${event.deposited.toFixed(2)} of ${event.amount.toFixed(2)} deposited
+                        {isPastDue && !event.paid && <span className="deposit-overdue"> · overdue</span>}
+                      </span>
+                      <span className="deposit-pct">{(event.paid ? 100 : depositPct).toFixed(0)}%</span>
+                    </div>
+                    <div className="deposit-bar-track">
+                      <div className="deposit-bar-fill" style={{ width: `${event.paid ? 100 : depositPct}%` }} />
+                    </div>
+                  </div>
                 )}
-                <button
-                  className={`pay-btn${event.paid ? ' paid' : ''}`}
-                  onClick={() => togglePaid(event)}
-                >
-                  {event.paid ? '✓ Paid' : 'Mark paid'}
-                </button>
               </div>
               );
             })}
