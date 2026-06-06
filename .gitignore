@@ -1,24 +1,14 @@
 node_modules/
-.expo/
 dist/
-web-build/
-expo-env.d.ts
-.kotlin/
-*.orig.*
-*.jks
-*.p8
-*.p12
-*.key
-*.mobileprovision
-.metro-health-check*
-npm-debug.*
-yarn-debug.*
-yarn-error.*
 .DS_Store
 *.pem
 .env*.local
 *.tsbuildinfo
-/ios
-/android 
+.expo/
+
+# Tool and agent directories
+.claude/
 .codex
-.codex/
+
+# Persistent local data — never commit your personal financial data
+data/

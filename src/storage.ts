@@ -1,69 +1,81 @@
 import type { Priority, PaycheckRecord, Goal, Bill } from './types';
 
-const PRIORITIES_KEY = 'kubera_priorities';
-const HISTORY_KEY = 'kubera_history';
+export interface AppData {
+  priorities: Priority[];
+  history:    PaycheckRecord[];
+  goals:      Goal[];
+  bills:      Bill[];
+}
 
-function makeDefaults(): Priority[] {
+function makeDefaultPriorities(): Priority[] {
   return [
-    { id: crypto.randomUUID(), name: 'Rent', type: 'fixed', amount: 0 },
-    { id: crypto.randomUUID(), name: 'Savings', type: 'percentage', percentage: 10 },
-    { id: crypto.randomUUID(), name: 'Groceries', type: 'fixed', amount: 0 },
-    { id: crypto.randomUUID(), name: 'Spending', type: 'remainder' },
+    { id: crypto.randomUUID(), name: 'Rent',      type: 'fixed',      amount: 0,  paidPeriods: [] },
+    { id: crypto.randomUUID(), name: 'Savings',   type: 'percentage', percentage: 10 },
+    { id: crypto.randomUUID(), name: 'Groceries', type: 'fixed',      amount: 0,  paidPeriods: [] },
+    { id: crypto.randomUUID(), name: 'Spending',  type: 'remainder' },
   ];
 }
 
-export function loadPriorities(): Priority[] {
+// ── File store (Vite dev-server plugin at /api/store/:key) ────────────────────
+
+async function fileRead<T>(key: string): Promise<T | null> {
   try {
-    const raw = localStorage.getItem(PRIORITIES_KEY);
-    return raw ? (JSON.parse(raw) as Priority[]) : makeDefaults();
+    const res = await fetch(`/api/store/${key}`);
+    if (!res.ok) return null;
+    const data: unknown = await res.json();
+    return (data !== null && data !== undefined) ? (data as T) : null;
   } catch {
-    return makeDefaults();
+    return null;
   }
 }
 
-export function savePriorities(priorities: Priority[]): void {
-  localStorage.setItem(PRIORITIES_KEY, JSON.stringify(priorities));
+function fileWrite<T>(key: string, data: T): void {
+  fetch(`/api/store/${key}`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify(data),
+  }).catch(() => {/* server unavailable — localStorage still has it */});
 }
 
-export function loadHistory(): PaycheckRecord[] {
+// ── localStorage (synchronous fallback / instant cache) ──────────────────────
+
+function lsRead<T>(key: string): T | null {
   try {
-    const raw = localStorage.getItem(HISTORY_KEY);
-    return raw ? (JSON.parse(raw) as PaycheckRecord[]) : [];
-  } catch {
-    return [];
-  }
+    const raw = localStorage.getItem(`kubera_${key}`);
+    return raw ? (JSON.parse(raw) as T) : null;
+  } catch { return null; }
 }
 
-export function saveHistory(history: PaycheckRecord[]): void {
-  localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+function lsWrite<T>(key: string, data: T): void {
+  try { localStorage.setItem(`kubera_${key}`, JSON.stringify(data)); } catch { /* quota */ }
 }
 
-const GOALS_KEY = 'kubera_goals';
+// ── Public API ────────────────────────────────────────────────────────────────
 
-export function loadGoals(): Goal[] {
-  try {
-    const raw = localStorage.getItem(GOALS_KEY);
-    return raw ? (JSON.parse(raw) as Goal[]) : [];
-  } catch {
-    return [];
-  }
+/**
+ * Load all app data on startup.
+ * File storage wins over localStorage (it's the persistent source of truth).
+ * Falls back to localStorage, then built-in defaults.
+ */
+export async function loadAll(): Promise<AppData> {
+  const [priorities, history, goals, bills] = await Promise.all([
+    fileRead<Priority[]>('priorities').then(d => d ?? lsRead<Priority[]>('priorities') ?? makeDefaultPriorities()),
+    fileRead<PaycheckRecord[]>('history').then(d => d ?? lsRead<PaycheckRecord[]>('history') ?? []),
+    fileRead<Goal[]>('goals').then(d => d ?? lsRead<Goal[]>('goals') ?? []),
+    fileRead<Bill[]>('bills').then(d => d ?? lsRead<Bill[]>('bills') ?? []),
+  ]);
+  return { priorities, history, goals, bills };
 }
 
-export function saveGoals(goals: Goal[]): void {
-  localStorage.setItem(GOALS_KEY, JSON.stringify(goals));
+/**
+ * Persist a data key — writes to localStorage immediately, then to the file store.
+ */
+function save<T>(key: string, data: T): void {
+  lsWrite(key, data);
+  fileWrite(key, data);
 }
 
-const BILLS_KEY = 'kubera_bills';
-
-export function loadBills(): Bill[] {
-  try {
-    const raw = localStorage.getItem(BILLS_KEY);
-    return raw ? (JSON.parse(raw) as Bill[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-export function saveBills(bills: Bill[]): void {
-  localStorage.setItem(BILLS_KEY, JSON.stringify(bills));
-}
+export const savePriorities = (d: Priority[])     => save('priorities', d);
+export const saveHistory    = (d: PaycheckRecord[]) => save('history',    d);
+export const saveGoals      = (d: Goal[])          => save('goals',       d);
+export const saveBills      = (d: Bill[])           => save('bills',       d);

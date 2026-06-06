@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { loadPriorities, savePriorities, loadHistory, saveHistory, loadGoals, saveGoals, loadBills, saveBills } from './storage';
+import { loadAll, savePriorities, saveHistory, saveGoals, saveBills } from './storage';
 import { PaycheckView } from './components/PaycheckView';
 import { PrioritiesView } from './components/PrioritiesView';
 import { HistoryView } from './components/HistoryView';
@@ -10,30 +10,70 @@ import type { Priority, PaycheckRecord, Goal, Bill } from './types';
 type View = 'paycheck' | 'priorities' | 'history' | 'goals' | 'calendar';
 
 export default function App() {
-  const [view, setView] = useState<View>('paycheck');
-  const [priorities, setPriorities] = useState<Priority[]>(() => loadPriorities());
-  const [history, setHistory] = useState<PaycheckRecord[]>(() => loadHistory());
-  const [goals, setGoals] = useState<Goal[]>(() => loadGoals());
-  const [bills, setBills] = useState<Bill[]>(() => loadBills());
-  const [toast, setToast] = useState('');
+  const [ready, setReady]           = useState(false);
+  const [view, setView]             = useState<View>('paycheck');
+  const [priorities, setPriorities] = useState<Priority[]>([]);
+  const [history, setHistory]       = useState<PaycheckRecord[]>([]);
+  const [goals, setGoals]           = useState<Goal[]>([]);
+  const [bills, setBills]           = useState<Bill[]>([]);
+  const [toast, setToast]           = useState('');
 
-  useEffect(() => { savePriorities(priorities); }, [priorities]);
-  useEffect(() => { saveHistory(history); }, [history]);
-  useEffect(() => { saveGoals(goals); }, [goals]);
-  useEffect(() => { saveBills(bills); }, [bills]);
+  // Load all data once on mount (file store → localStorage → defaults)
+  useEffect(() => {
+    loadAll().then(({ priorities, history, goals, bills }) => {
+      setPriorities(priorities);
+      setHistory(history);
+      setGoals(goals);
+      setBills(bills);
+      setReady(true);
+    });
+  }, []);
+
+  // ── Mutation handlers — update state AND write to storage immediately ────────
+
+  function handlePrioritiesChange(next: Priority[]) {
+    setPriorities(next);
+    savePriorities(next);
+  }
+
+  function handleBillsChange(next: Bill[]) {
+    setBills(next);
+    saveBills(next);
+  }
+
+  function handleGoalsChange(next: Goal[]) {
+    setGoals(next);
+    saveGoals(next);
+  }
+
+  function handleSavePaycheck(record: PaycheckRecord) {
+    const next = [...history, record];
+    setHistory(next);
+    saveHistory(next);
+    showToast('Paycheck saved!');
+  }
+
+  function handleDeleteRecord(id: string) {
+    const next = history.filter((r) => r.id !== id);
+    setHistory(next);
+    saveHistory(next);
+  }
 
   function showToast(msg: string) {
     setToast(msg);
     setTimeout(() => setToast(''), 2200);
   }
 
-  function handleSavePaycheck(record: PaycheckRecord) {
-    setHistory((prev) => [...prev, record]);
-    showToast('Paycheck saved!');
-  }
-
-  function handleDeleteRecord(id: string) {
-    setHistory((prev) => prev.filter((r) => r.id !== id));
+  if (!ready) {
+    return (
+      <div className="app">
+        <header className="header">
+          <h1 className="app-title">KUBERA</h1>
+          <p className="app-subtitle">Paycheck Allocator</p>
+        </header>
+        <div className="app-loading">Loading your data…</div>
+      </div>
+    );
   }
 
   return (
@@ -86,20 +126,20 @@ export default function App() {
           <PaycheckView priorities={priorities} onSave={handleSavePaycheck} />
         )}
         {view === 'priorities' && (
-          <PrioritiesView priorities={priorities} onChange={setPriorities} />
+          <PrioritiesView priorities={priorities} onChange={handlePrioritiesChange} />
         )}
         {view === 'history' && (
           <HistoryView history={history} onDelete={handleDeleteRecord} />
         )}
         {view === 'goals' && (
-          <GoalsView goals={goals} onChange={setGoals} />
+          <GoalsView goals={goals} onChange={handleGoalsChange} />
         )}
         {view === 'calendar' && (
           <CalendarView
             bills={bills}
-            onChange={setBills}
+            onChange={handleBillsChange}
             priorities={priorities}
-            onPrioritiesChange={setPriorities}
+            onPrioritiesChange={handlePrioritiesChange}
           />
         )}
       </main>
