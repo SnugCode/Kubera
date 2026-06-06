@@ -770,6 +770,24 @@ body {
 .reorder-btn:hover:not(:disabled) { border-color: var(--green); color: var(--green); }
 .reorder-btn:disabled { opacity: 0.3; cursor: default; }
 
+/* Cross-category link tags */
+.link-tag {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 20px;
+  border: 1px solid;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.link-tag.priority-link { color: var(--green);  border-color: var(--green);  background: #f0f7f3; }
+.link-tag.bill-link      { color: #2e6b9a;       border-color: #2e6b9a;       background: #eef4f9; }
+.link-tag.goal-link      { color: #8a5c2e;       border-color: #8a5c2e;       background: #faf5ef; }
+
+/* Priority tags row */
+.priority-tags { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
 /* Goal type toggle */
 .goal-type-toggle {
   display: flex;

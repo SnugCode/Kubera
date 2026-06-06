@@ -1,11 +1,16 @@
 import { useState } from 'react';
-import type { Bill, BillRecurrence, Priority } from '../types';
+import type { Bill, BillRecurrence, Priority, Goal } from '../types';
 
 interface Props {
   bills: Bill[];
   onChange: (bills: Bill[]) => void;
   priorities: Priority[];
   onPrioritiesChange: (priorities: Priority[]) => void;
+  goals: Goal[];
+}
+
+function getLinkKey(item: { linkKey?: string; name: string }): string {
+  return (item.linkKey ?? item.name).trim().toLowerCase();
 }
 
 // Unified event used for display — can come from a Bill or a fixed Priority
@@ -157,7 +162,7 @@ function buildMonthEvents(
 
 // ── Component ─────────────────────────────────────────
 
-export function CalendarView({ bills, onChange, priorities, onPrioritiesChange }: Props) {
+export function CalendarView({ bills, onChange, priorities, onPrioritiesChange, goals }: Props) {
   const now = new Date();
   const [year, setYear]         = useState(now.getFullYear());
   const [month, setMonth]       = useState(now.getMonth());
@@ -179,16 +184,36 @@ export function CalendarView({ bills, onChange, priorities, onPrioritiesChange }
 
   function togglePaid(event: CalEvent) {
     if (event.source === 'bill' && event.billRef) {
-      const bill = event.billRef;
-      const key  = billPaidKey(bill, year, month, event.day);
+      const bill      = event.billRef;
+      const key       = billPaidKey(bill, year, month, event.day);
+      const willBePaid = !bill.paidPeriods.includes(key);
+
       onChange(bills.map((b) =>
         b.id !== bill.id ? b : {
           ...b,
-          paidPeriods: bill.paidPeriods.includes(key)
-            ? bill.paidPeriods.filter((p) => p !== key)
-            : [...bill.paidPeriods, key],
+          paidPeriods: willBePaid
+            ? [...b.paidPeriods, key]
+            : b.paidPeriods.filter((k) => k !== key),
         }
       ));
+
+      // Sync paid state to any priority with the same linkKey
+      const billKey = getLinkKey(bill);
+      const linked  = priorities.find((p) => getLinkKey(p) === billKey);
+      if (linked) {
+        const pKey    = priorityPaidKey(year, month);
+        const already = (linked.paidPeriods ?? []).includes(pKey);
+        if (willBePaid !== already) {
+          onPrioritiesChange(priorities.map((pr) =>
+            pr.id !== linked.id ? pr : {
+              ...pr,
+              paidPeriods: willBePaid
+                ? [...(pr.paidPeriods ?? []), pKey]
+                : (pr.paidPeriods ?? []).filter((k) => k !== pKey),
+            }
+          ));
+        }
+      }
     } else if (event.source === 'priority' && event.priorityRef) {
       const p   = event.priorityRef;
       const key = priorityPaidKey(year, month);
@@ -218,6 +243,7 @@ export function CalendarView({ bills, onChange, priorities, onPrioritiesChange }
       {
         id:           crypto.randomUUID(),
         name:         form.name.trim(),
+        linkKey:      form.name.trim().toLowerCase(),
         amount,
         recurrence:   form.recurrence,
         dueDay:       parseInt(form.dueDay) || 1,
@@ -339,14 +365,22 @@ export function CalendarView({ bills, onChange, priorities, onPrioritiesChange }
             {shown.length === 0 && (
               <p className="empty-hint" style={{ padding: '6px 0' }}>Nothing due on this day.</p>
             )}
-            {shown.map((event) => (
+            {shown.map((event) => {
+              const ek = (event.billRef ?? event.priorityRef) ? getLinkKey(event.billRef ?? event.priorityRef!) : event.name.trim().toLowerCase();
+              const linkedPriority = event.source === 'bill' && priorities.some((p) => getLinkKey(p) === ek);
+              const linkedBill     = event.source === 'priority' && bills.some((b) => getLinkKey(b) === ek);
+              const linkedGoal     = goals.some((g) => getLinkKey(g) === ek);
+              return (
               <div key={event.key} className={`bill-item${event.paid ? ' paid' : ''}`}>
                 <span className="bill-color-dot" style={{ background: event.color }} />
                 <div className="bill-info">
                   <span className="bill-name">{event.name}</span>
-                  <span className="bill-meta">
-                    {MONTH_SHORT[month]} {event.day} · {event.meta}
-                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+                    <span className="bill-meta">{MONTH_SHORT[month]} {event.day} · {event.meta}</span>
+                    {linkedPriority && <span className="link-tag priority-link">→ Priority</span>}
+                    {linkedBill     && <span className="link-tag bill-link">→ Bill</span>}
+                    {linkedGoal     && <span className="link-tag goal-link">→ Goal</span>}
+                  </div>
                 </div>
                 {event.amount > 0 && (
                   <span className="bill-amount">${event.amount.toFixed(2)}</span>
@@ -358,7 +392,8 @@ export function CalendarView({ bills, onChange, priorities, onPrioritiesChange }
                   {event.paid ? '✓ Paid' : 'Mark paid'}
                 </button>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

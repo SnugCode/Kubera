@@ -1,9 +1,15 @@
 import { useState } from 'react';
-import type { Priority, AllocationType } from '../types';
+import type { Priority, AllocationType, Bill, Goal } from '../types';
 
 interface Props {
   priorities: Priority[];
   onChange: (priorities: Priority[]) => void;
+  bills: Bill[];
+  goals: Goal[];
+}
+
+function getLinkKey(item: { linkKey?: string; name: string }): string {
+  return (item.linkKey ?? item.name).trim().toLowerCase();
 }
 
 interface Form {
@@ -30,6 +36,7 @@ function formToPriority(f: Form, id: string, existing?: Priority): Priority {
   return {
     id,
     name: f.name.trim(),
+    linkKey: f.name.trim().toLowerCase(),
     type: f.type,
     ...(f.type === 'fixed' && { amount: parseFloat(f.amount) || 0 }),
     ...(f.type === 'fixed' && f.dueDay && { dueDay: parseInt(f.dueDay) }),
@@ -38,7 +45,7 @@ function formToPriority(f: Form, id: string, existing?: Priority): Priority {
   };
 }
 
-export function PrioritiesView({ priorities, onChange }: Props) {
+export function PrioritiesView({ priorities, onChange, bills, goals }: Props) {
   const [addForm, setAddForm] = useState<Form>(empty);
   const [editId, setEditId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Form>(empty);
@@ -169,7 +176,15 @@ export function PrioritiesView({ priorities, onChange }: Props) {
                   <div className="priority-rank">{idx + 1}</div>
                   <div className="priority-info">
                     <span className="priority-name">{p.name}</span>
-                    <span className={`type-badge type-${p.type}`}>{typeLabel(p)}</span>
+                    <div className="priority-tags">
+                      <span className={`type-badge type-${p.type}`}>{typeLabel(p)}</span>
+                      {bills.some((b) => getLinkKey(b) === getLinkKey(p)) && (
+                        <span className="link-tag bill-link" title={`Linked to: ${bills.filter(b => getLinkKey(b) === getLinkKey(p)).map(b => b.name).join(', ')} in Bills`}>→ Bill</span>
+                      )}
+                      {goals.some((g) => getLinkKey(g) === getLinkKey(p)) && (
+                        <span className="link-tag goal-link" title={`Linked to: ${goals.filter(g => getLinkKey(g) === getLinkKey(p)).map(g => g.name).join(', ')} in Goals`}>→ Goal</span>
+                      )}
+                    </div>
                   </div>
                   <div className="priority-actions">
                     <button className="icon-btn" onClick={() => moveUp(idx)} disabled={idx === 0} title="Move up">↑</button>

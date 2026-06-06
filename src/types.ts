@@ -3,6 +3,7 @@ export type AllocationType = 'fixed' | 'percentage' | 'remainder';
 export interface Priority {
   id: string;
   name: string;
+  linkKey?: string;       // normalized name for cross-category linking; defaults to name.toLowerCase()
   type: AllocationType;
   amount?: number;        // used when type === 'fixed' — stored as monthly total
   percentage?: number;    // used when type === 'percentage'
@@ -34,6 +35,7 @@ export type BillRecurrence = 'monthly' | 'fortnightly' | 'quarterly' | 'yearly' 
 export interface Bill {
   id: string;
   name: string;
+  linkKey?: string;       // normalized name for cross-category linking
   amount: number;
   recurrence: BillRecurrence;
   dueDay: number;          // for monthly/yearly: day of month (1–28)
@@ -48,6 +50,7 @@ export interface Bill {
 export interface Goal {
   id: string;
   name: string;
+  linkKey?: string;       // normalized name for cross-category linking
   type: 'long-term' | 'standalone';
   targetAmount: number;
   months: number;       // for long-term: months to reach the goal; 0 for standalone (no deadline)

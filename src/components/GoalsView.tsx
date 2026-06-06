@@ -1,9 +1,15 @@
 import { useState } from 'react';
-import type { Goal } from '../types';
+import type { Goal, Bill, Priority } from '../types';
 
 interface Props {
   goals: Goal[];
   onChange: (goals: Goal[]) => void;
+  bills: Bill[];
+  priorities: Priority[];
+}
+
+function getLinkKey(item: { linkKey?: string; name: string }): string {
+  return (item.linkKey ?? item.name).trim().toLowerCase();
 }
 
 interface AddForm {
@@ -52,10 +58,11 @@ interface GoalCardProps {
   onContribute: (id: string, amount: number) => void;
   onComplete: (id: string) => void;
   onRemove: (id: string) => void;
-  isActive?: boolean;   // for standalone: is this the top goal?
+  isActive?: boolean;
+  linkedCategories?: string[];  // e.g. ['Priority', 'Bill']
 }
 
-function GoalCard({ goal, onContribute, onComplete, onRemove, isActive = true }: GoalCardProps) {
+function GoalCard({ goal, onContribute, onComplete, onRemove, isActive = true, linkedCategories = [] }: GoalCardProps) {
   const [contributing, setContributing] = useState(false);
   const [input, setInput] = useState('');
 
@@ -77,11 +84,14 @@ function GoalCard({ goal, onContribute, onComplete, onRemove, isActive = true }:
   return (
     <div className={`card goal-card${isActive && goal.type === 'standalone' ? ' goal-card-active' : ''}`}>
       <div className="goal-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           {goal.type === 'standalone' && isActive && (
             <span className="goal-active-badge">Active</span>
           )}
           <span className="goal-name">{goal.name}</span>
+          {linkedCategories.map((cat) => (
+            <span key={cat} className={`link-tag ${cat === 'Priority' ? 'priority-link' : 'bill-link'}`}>→ {cat}</span>
+          ))}
         </div>
         <div className="goal-actions">
           <button className="icon-btn" onClick={() => onComplete(goal.id)} title="Mark complete">✓</button>
@@ -158,7 +168,14 @@ function GoalCard({ goal, onContribute, onComplete, onRemove, isActive = true }:
 
 // ── Main view ─────────────────────────────────────────────
 
-export function GoalsView({ goals, onChange }: Props) {
+export function GoalsView({ goals, onChange, bills, priorities }: Props) {
+  function linkedCats(goal: Goal): string[] {
+    const k = getLinkKey(goal);
+    const cats: string[] = [];
+    if (priorities.some((p) => getLinkKey(p) === k)) cats.push('Priority');
+    if (bills.some((b) => getLinkKey(b) === k)) cats.push('Bill');
+    return cats;
+  }
   const [form, setForm] = useState<AddForm>(emptyForm);
   const [showForm, setShowForm] = useState(false);
 
@@ -182,6 +199,7 @@ export function GoalsView({ goals, onChange }: Props) {
       {
         id:          crypto.randomUUID(),
         name:        form.name.trim(),
+        linkKey:     form.name.trim().toLowerCase(),
         type:        form.type,
         targetAmount: target,
         months:      form.type === 'long-term' ? parseInt(form.months, 10) : 0,
@@ -254,6 +272,7 @@ export function GoalsView({ goals, onChange }: Props) {
               onContribute={contribute}
               onComplete={markComplete}
               onRemove={removeGoal}
+              linkedCategories={linkedCats(goal)}
             />
           ))}
         </div>
@@ -272,6 +291,7 @@ export function GoalsView({ goals, onChange }: Props) {
             onComplete={markComplete}
             onRemove={removeGoal}
             isActive={true}
+            linkedCategories={linkedCats(standaloneActive[0])}
           />
 
           {/* Queued goals */}

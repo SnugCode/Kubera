@@ -126,13 +126,13 @@ export default function App() {
           <PaycheckView priorities={priorities} onSave={handleSavePaycheck} />
         )}
         {view === 'priorities' && (
-          <PrioritiesView priorities={priorities} onChange={handlePrioritiesChange} />
+          <PrioritiesView priorities={priorities} onChange={handlePrioritiesChange} bills={bills} goals={goals} />
         )}
         {view === 'history' && (
           <HistoryView history={history} onDelete={handleDeleteRecord} />
         )}
         {view === 'goals' && (
-          <GoalsView goals={goals} onChange={handleGoalsChange} />
+          <GoalsView goals={goals} onChange={handleGoalsChange} bills={bills} priorities={priorities} />
         )}
         {view === 'calendar' && (
           <CalendarView
@@ -140,6 +140,7 @@ export default function App() {
             onChange={handleBillsChange}
             priorities={priorities}
             onPrioritiesChange={handlePrioritiesChange}
+            goals={goals}
           />
         )}
       </main>
