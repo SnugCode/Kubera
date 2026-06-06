@@ -1,195 +1,137 @@
 # Kubera
 
-Kubera is a starter personal finance tracker built with React Native, Expo, and TypeScript. It helps a user enter recurring income, one-time income, and expenses, then projects monthly and yearly net amounts from those inputs.
-
-## Current Status
-
-This is an early local prototype. Data is stored in React state only, so entries and the nickname reset when the app reloads. Persistence can be added later with local storage or a database.
+Kubera is a personal paycheck allocator and finance tracker that runs locally in the browser. It tells you exactly where to put your money each week — covering essentials first, tracking bills and loans, and giving you a weekly guide based on your income history.
 
 ## Tech Stack
 
-- React Native
-- Expo
-- TypeScript
-- No external navigation or form libraries yet
+- **Vite** + **React 19** + **TypeScript**
+- No external UI libraries — all styling is hand-written CSS
+- Dual persistent storage: `localStorage` (instant, synchronous) + file-based JSON in `data/` via a Vite dev-server plugin (survives browser clears)
 
 ## Getting Started
 
-Install dependencies:
-
 ```bash
 npm install
+npm run dev
 ```
 
-Start Expo:
+Open [http://localhost:5173](http://localhost:5173).
 
-```bash
-npm start
-```
+Data is automatically saved to `data/*.json` as you use the app. No database or backend required.
 
-Useful scripts:
+## Features
 
-```bash
-npm run android
-npm run ios
-npm run web
-```
+### Paychecks
+Enter your gross paycheck amount and date. Kubera runs your priority list against the amount and shows a full allocation breakdown. Past paychecks are saved and viewable in a collapsible history.
 
-Type-check the app:
+### Priorities
+Define how your money is distributed, in order. Three allocation types:
 
-```bash
-npx tsc --noEmit
-```
+| Type | How it works |
+|---|---|
+| **Fixed** | A monthly dollar amount — Kubera sets aside ¼ each paycheck |
+| **Percentage** | Takes a % of what remains after fixed items |
+| **Remainder** | Gets everything left over |
 
-## First-Run Nickname
+**Auto-managed priorities** — two special entries appear automatically and stay in sync without any manual input:
+- **Bills** — aggregates all items marked as *bills* from the Bills & Expenses tab. Updates whenever a bill is added, changed, or removed.
+- **Loans & Repayments** — aggregates all active loans. Calculates a monthly obligation based on upcoming installment due dates (pay-in-4) or outstanding balance (custom). Disappears when all loans are cleared.
 
-When the app starts, Kubera asks for the user's nickname. After the nickname is entered, the app header changes to:
+Both can be reordered within the priority list.
 
-```text
-Kubera
-{Nickname}'s Personal Finance Tracker
-```
+### Goals
+Track savings goals with two modes:
 
-The header also shows today's date for reference.
+- **Long-term** — set a target amount and either a duration (Kubera calculates how much to set aside per paycheck) or a fixed monthly contribution
+- **Standalone** — one-off targets with no paycheck schedule
 
-## App Sections
+Goals link to priorities by name. When the linked priority is paid, the goal updates automatically. Goals are marked complete when the target is reached.
 
-Kubera uses a hamburger menu in the top-right corner. The menu contains:
+### Bills & Expenses
+A combined bill tracker and calendar. Items can be categorised as:
 
-- Overview
-- Income
-- Expenses
-- Transaction History
+- **Bill** — rolled up into the auto Bills priority
+- **Expense** — tracked standalone
 
-Adding a transaction happens from the circular `+` button in the bottom-right corner.
+Supported recurrence: Weekly, Fortnightly, Monthly, Quarterly, Yearly, One-time, Custom interval.
 
-## Overview
+**Deposit tracking** — instead of a simple mark-paid toggle, you log partial deposits toward a bill. A progress bar fills as you add deposits. When the total reaches the bill amount the bill is marked paid automatically. Overdue recurring bills advance to the next cycle when fully settled.
 
-The Overview screen summarizes the user's projected finances.
+The calendar view shows all bills, expenses, and pay-in-4 loan installments on their due dates with colour-coded dots. Select a day to see its events in detail.
 
-It includes:
+### Loans & Repayments
+Track money owed — Afterpay, Zip, personal debts, or anything else.
 
-- Current month net amount
-- Collapsible Monthly projection
-- Collapsible Yearly projection
-- Frequency math notes
+**Pay in 4** — four installments with individually editable due dates. Quick presets: Weekly (+0/+7/+14/+21) or Fortnightly (+0/+14/+28/+42 from today). When adding a loan for something partially paid off, tick which installments are already done. Each installment has a Pay button; paying all four completes the loan.
 
-Monthly projections only show months from when the user first opened the app through the current month.
+**Custom** — no fixed schedule. Deposit any amount at any time. The loan auto-completes when cumulative payments reach the total.
 
-Yearly projections calculate the full current year in the background, including upcoming months, even though upcoming months are not shown in the Monthly list.
+Both types show a progress bar. Completed loans collapse into a "Paid Off" archive.
 
-## Add Transaction
+### Assistant
+A weekly guide that does the thinking for you.
 
-Tap the circular `+` button in the bottom-right corner to open the Add Transaction screen. This single screen handles both income and expenses.
+**Income prediction** — averages your last 8 paychecks to estimate what you'll earn this week. Before you enter a paycheck, shows a preview allocation based on the prediction so you know what to expect.
 
-First choose the transaction type:
+**Once your paycheck is entered:**
+- A chip in the header shows whether you're above average, on track, or below average
+- Every priority is labelled **Essential** (fixed), **Flexible** (percentage), or **Discretionary** (remainder)
+- **Tight week detection** — if your paycheck is more than 5% below your average, a warning card lists every non-essential priority and how much it received, and non-essential steps are dimmed. Essentials (Rent, Bills, Loans) are always fully covered first.
 
-- Income
-- Expense
+**Dual progress bars** — the allocation bars show two layers: green for expected allocation, red for actual deposits logged so far.
 
-For income, the form includes:
+**Upcoming loans** — pay-in-4 installments due in the next 7 days appear with their due date and overdue flag. Active custom loans show a progress bar and remaining balance.
 
-- Title
-- Amount
-- Income Type
-- Frequency, if recurring
+**Upcoming bills** — bills due in the next 7 days with partial deposit progress.
 
-Income types:
-
-- Recurring
-- One-time
-
-Recurring income supports:
-
-- Weekly
-- Bi-weekly
-- Monthly
-
-One-time income hides the frequency selector and counts only once in the month it was added.
-
-For expenses, the form includes:
-
-- Title
-- Amount
-- Frequency
-- Optional custom day counter, when Custom is selected
-- Start Date
-
-## Income
-
-The Income menu page displays income entries only, separately from expenses. It shows an income total and a filtered list of income items.
-
-## Expenses
-
-The Expenses menu page displays expense entries only, separately from income. It shows an expense total and a filtered list of expense items.
-
-Expense frequencies:
-
-- Weekly
-- Bi-weekly
-- Monthly
-- Quarterly
-- Annually
-- Custom
-
-The start date controls when the expense begins being counted in projections.
-
-Custom expenses use a day counter shown as:
-
-```text
-Every [-] 0 [+] days
-```
-
-The counter starts at `0`. The `+` button adds one day. The `-` button subtracts one day only when the value is above `0`. A custom value of `0` means the expense is not scheduled yet.
-
-## Transaction History
-
-Transaction History records all user-entered income and expense items for the current app session.
-
-Each history item shows:
-
-- Title
-- Income or Expense type
-- Frequency or One-Time label
-- Custom day interval, if applicable
-- Start date, if applicable
-- Amount
-
-## Frequency Math
-
-Kubera calculates recurring entries as follows:
-
-- Weekly: amount multiplied by the practical week count for that month
-- Bi-weekly: amount multiplied by half the practical week count, rounded up
-- Monthly: amount once per month
-- Quarterly: amount every 3 months from the expense start date
-- Annually: amount every 12 months from the expense start date
-- Custom: amount every chosen number of days from the expense start date
-- One-time income: amount once in the month it was added
-
-## Important Limitations
-
-- Data is not saved after reload yet.
-- The nickname is not saved after reload yet.
-- Date entry currently uses `YYYY-MM-DD` text input rather than a native date picker.
-- The app currently lives mostly in `App.tsx`; future refactors can split screens, components, and finance logic into separate files.
+### Stats
+Navigate week by week through your paycheck history. Each week shows gross income, how it was allocated, and a per-paycheck breakdown when multiple paychecks landed in the same week. Week navigation skips to weeks that actually have data.
 
 ## Project Structure
 
-```text
+```
 kubera/
-  App.tsx
-  app.json
-  index.ts
-  package.json
-  tsconfig.json
-  assets/
+├── src/
+│   ├── App.tsx                    # Root — state, nav, auto-sync effects
+│   ├── allocate.ts                # Priority allocation engine
+│   ├── storage.ts                 # Dual localStorage + file persistence
+│   ├── types.ts                   # All TypeScript interfaces
+│   ├── index.css                  # All styles
+│   └── components/
+│       ├── PaycheckView.tsx
+│       ├── PrioritiesView.tsx
+│       ├── GoalsView.tsx
+│       ├── CalendarView.tsx       # Bills, expenses, calendar grid
+│       ├── LoansView.tsx
+│       ├── AssistantView.tsx
+│       ├── StatsView.tsx
+│       └── HistoryView.tsx
+├── data/                          # Auto-created JSON files (gitignored)
+│   ├── priorities.json
+│   ├── history.json
+│   ├── goals.json
+│   ├── bills.json
+│   └── loans.json
+├── index.html
+├── vite.config.ts
+└── package.json
 ```
 
-## Next Steps
+## Data Persistence
 
-1. Add persistent storage for nickname, income, expenses, and history.
-2. Add edit and delete actions for entries.
-3. Replace manual date text input with a proper date picker.
-4. Split `App.tsx` into screens, components, and finance calculation utilities.
-5. Add automated tests for projection math.
+All data is saved in two places simultaneously:
+
+1. **`localStorage`** — written synchronously on every change; survives page refreshes
+2. **`data/*.json`** — written via a Vite dev-server plugin; survives browser clears and profile resets
+
+On load, file storage wins over localStorage. If neither exists, sensible defaults are used.
+
+The `data/` directory is gitignored by default to keep personal financial data out of version control.
+
+## Build
+
+```bash
+npm run build
+```
+
+Outputs a static site to `dist/`. The file-storage plugin is dev-only; in production, localStorage is the persistence layer.
