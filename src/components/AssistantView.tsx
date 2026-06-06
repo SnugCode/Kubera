@@ -1,4 +1,4 @@
-import type { Priority, PaycheckRecord, Bill, Goal } from '../types';
+import type { Priority, PaycheckRecord, Bill, Goal, Loan } from '../types';
 import { allocate } from '../allocate';
 
 interface Props {
@@ -6,6 +6,7 @@ interface Props {
   priorities: Priority[];
   bills:      Bill[];
   goals:      Goal[];
+  loans:      Loan[];
 }
 
 const WKPM = 52 / 12;
@@ -14,17 +15,39 @@ function fmtDate(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-function getThisWeekPaycheck(history: PaycheckRecord[]): PaycheckRecord | null {
+function thisWeekMonday(): Date {
   const now = new Date();
   const dow = now.getDay();
-  const monday = new Date(now);
-  monday.setDate(now.getDate() - (dow === 0 ? 6 : dow - 1));
-  monday.setHours(0, 0, 0, 0);
+  const mon = new Date(now);
+  mon.setDate(now.getDate() - (dow === 0 ? 6 : dow - 1));
+  mon.setHours(0, 0, 0, 0);
+  return mon;
+}
+
+function getThisWeekPaycheck(history: PaycheckRecord[]): PaycheckRecord | null {
+  const monday = thisWeekMonday();
   return (
     [...history]
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-      .find(r => new Date(r.date) >= monday) ?? null
+      .find(r => new Date(r.date + 'T00:00:00') >= monday) ?? null
   );
+}
+
+// Average gross of last N paychecks before this week
+function predictWeeklyIncome(history: PaycheckRecord[]): number | null {
+  const monday = thisWeekMonday();
+  const past = [...history]
+    .filter(r => new Date(r.date + 'T00:00:00') < monday)
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .slice(0, 8);
+  if (past.length === 0) return null;
+  return past.reduce((s, r) => s + r.gross, 0) / past.length;
+}
+
+function priorityTier(p: Priority): 'essential' | 'flexible' | 'discretionary' {
+  if (p.type === 'fixed')      return 'essential';
+  if (p.type === 'percentage') return 'flexible';
+  return 'discretionary';
 }
 
 // Find how much has been deposited toward a bill in its current active period
@@ -142,33 +165,140 @@ function billsDueSoon(bills: Bill[]): UpcomingBill[] {
   });
 }
 
-export function AssistantView({ history, priorities, bills, goals }: Props) {
-  const record = getThisWeekPaycheck(history);
-  const upcoming = billsDueSoon(bills);
-  const activeGoals = goals.filter(g => !g.completed);
+interface UpcomingInstallment {
+  loan:      Loan;
+  insId:     string;
+  dueDate:   Date;
+  amount:    number;
+  paid:      boolean;
+  overdue:   boolean;
+}
 
+function loansDueSoon(loans: Loan[]): UpcomingInstallment[] {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const horizon = new Date(today); horizon.setDate(today.getDate() + 7);
+  const results: UpcomingInstallment[] = [];
+  for (const loan of loans) {
+    if (loan.completed || loan.type !== 'pay-in-4' || !loan.installments) continue;
+    for (const ins of loan.installments) {
+      if (ins.paid) continue;
+      const d = new Date(ins.dueDate + 'T00:00:00');
+      if (d <= horizon) {
+        results.push({
+          loan, insId: ins.id, dueDate: d, amount: ins.amount,
+          paid: false, overdue: d < today,
+        });
+      }
+    }
+  }
+  return results.sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime());
+}
+
+function activeCustomLoans(loans: Loan[]): { loan: Loan; remaining: number }[] {
+  return loans
+    .filter(l => !l.completed && l.type === 'custom')
+    .map(l => ({
+      loan: l,
+      remaining: Math.max(0, l.totalAmount - l.payments.reduce((s, p) => s + p.amount, 0)),
+    }))
+    .filter(x => x.remaining > 0);
+}
+
+export function AssistantView({ history, priorities, bills, goals, loans }: Props) {
+  const record        = getThisWeekPaycheck(history);
+  const upcoming      = billsDueSoon(bills);
+  const activeGoals   = goals.filter(g => !g.completed);
+  const upcomingLoans = loansDueSoon(loans);
+  const customLoans   = activeCustomLoans(loans);
+  const predicted     = predictWeeklyIncome(history);
+
+  // No paycheck this week — show prediction + preview allocation
   if (!record) {
+    const previewGross  = predicted ?? 0;
+    const previewResult = previewGross > 0 ? allocate(previewGross, priorities) : null;
     return (
       <div className="view">
         <div className="card assistant-guide-card">
           <div className="guide-header">
-            <span className="guide-icon">📋</span>
             <div>
               <h2 className="guide-title">This Week's Guide</h2>
               <p className="guide-sub">No paycheck entered yet for this week.</p>
             </div>
           </div>
-          <p className="guide-hint">
-            Head to <strong>Paychecks</strong> and enter your gross amount for this week to see your allocation guide.
-          </p>
+          {predicted !== null ? (
+            <div className="guide-prediction-banner">
+              <span className="guide-prediction-label">Based on your last paychecks, you're expected to earn approximately</span>
+              <span className="guide-prediction-amount">${predicted.toFixed(2)}</span>
+              <span className="guide-prediction-label">this week. Here's what your allocation would look like — enter your actual paycheck in <strong>Paychecks</strong> to confirm.</span>
+            </div>
+          ) : (
+            <p className="guide-hint">
+              Head to <strong>Paychecks</strong> and enter your gross amount for this week to see your allocation guide.
+            </p>
+          )}
         </div>
+
+        {previewResult && priorities.length > 0 && (
+          <div className="card">
+            <h3 className="section-title">
+              Preview allocation
+              <span className="guide-preview-badge">estimated</span>
+            </h3>
+            <div className="guide-steps">
+              {previewResult.lines.map((line, i) => {
+                const tier = priorityTier(line.priority);
+                return (
+                  <div key={line.priority.id} className={`guide-step${line.shortfall ? ' guide-step-warn' : ''}`}>
+                    <span className="guide-step-num">{i + 1}</span>
+                    <div className="guide-step-body">
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span className="guide-step-name">{line.priority.name}</span>
+                        <span className={`guide-tier-badge guide-tier-${tier}`}>
+                          {tier === 'essential' ? 'Essential' : tier === 'flexible' ? 'Flexible' : 'Discretionary'}
+                        </span>
+                      </div>
+                      <span className={`guide-step-amount${line.shortfall ? ' shortfall' : ''}`}>
+                        ${line.allocated.toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="guide-bar-track">
+                      <div className="guide-bar-fill" style={{ width: `${Math.min(100, line.pct)}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+              {previewResult.unallocated > 0.005 && (
+                <div className="guide-step guide-step-unalloc">
+                  <span className="guide-step-num">→</span>
+                  <div className="guide-step-body">
+                    <span className="guide-step-name muted">Unallocated</span>
+                    <span className="guide-step-amount muted">${previewResult.unallocated.toFixed(2)}</span>
+                  </div>
+                  <div className="guide-bar-track">
+                    <div className="guide-bar-fill unallocated" style={{ width: `${(previewResult.unallocated / previewGross) * 100}%` }} />
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     );
   }
 
   const { gross, date } = record;
-  const result = allocate(gross, priorities);
+  const result       = allocate(gross, priorities);
   const hasShortfall = result.lines.some(l => l.shortfall);
+
+  // Is this a meaningfully lower-than-expected week? (more than 5% below average)
+  const isLowWeek  = predicted !== null && gross < predicted * 0.95;
+  const isGoodWeek = predicted !== null && gross >= predicted;
+  const delta      = predicted !== null ? gross - predicted : null;
+
+  // Non-essential priorities the user should hold off on this low week
+  const holdOffLines = isLowWeek
+    ? result.lines.filter(l => priorityTier(l.priority) !== 'essential' && l.allocated > 0)
+    : [];
 
   // Map linkKey → deposited amount for the current active period of each bill
   const depositMap = new Map<string, number>();
@@ -187,17 +317,58 @@ export function AssistantView({ history, priorities, bills, goals }: Props) {
           <div>
             <h2 className="guide-title">This Week's Allocation Guide</h2>
             <p className="guide-sub">
-              Paycheck of <strong>${gross.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong> entered on {fmtDate(new Date(date))}
+              Paycheck of <strong>${gross.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong> entered on {fmtDate(new Date(date + 'T00:00:00'))}
             </p>
           </div>
+          {delta !== null && (
+            <span className={`guide-delta-chip${isLowWeek ? ' low' : isGoodWeek ? ' good' : ''}`}>
+              {isGoodWeek
+                ? `↑ $${Math.abs(delta).toFixed(2)} above avg`
+                : isLowWeek
+                ? `↓ $${Math.abs(delta).toFixed(2)} below avg`
+                : `≈ avg $${predicted!.toFixed(2)}`}
+            </span>
+          )}
         </div>
 
         {hasShortfall && (
           <div className="guide-warning">
-            Your paycheck is short of covering all fixed expenses this week. Prioritised items are funded first.
+            Your paycheck doesn't fully cover all fixed expenses this week. Essentials are funded first.
           </div>
         )}
       </div>
+
+      {/* ── Tight week advice ── */}
+      {isLowWeek && holdOffLines.length > 0 && (
+        <div className="card guide-tight-card">
+          <div className="guide-tight-header">
+            <span className="guide-tight-icon">⚠</span>
+            <div>
+              <span className="guide-tight-title">Tighter week than usual</span>
+              <span className="guide-tight-sub">
+                ${gross.toFixed(2)} vs avg ${predicted!.toFixed(2)} — focus on essentials this week.
+              </span>
+            </div>
+          </div>
+          <div className="guide-tight-body">
+            <span className="guide-tight-label">Consider holding off on:</span>
+            <div className="guide-tight-list">
+              {holdOffLines.map(l => (
+                <div key={l.priority.id} className="guide-tight-row">
+                  <span className={`guide-tier-badge guide-tier-${priorityTier(l.priority)}`}>
+                    {priorityTier(l.priority) === 'flexible' ? 'Flexible' : 'Discretionary'}
+                  </span>
+                  <span className="guide-tight-name">{l.priority.name}</span>
+                  <span className="guide-tight-amount">${l.allocated.toFixed(2)}</span>
+                </div>
+              ))}
+            </div>
+            <p className="guide-tight-note">
+              Your essentials (Rent, Bills, Loans) are still fully covered. Resume normal contributions next week.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* ── Step-by-step allocations ── */}
       {priorities.length > 0 && (
@@ -209,11 +380,18 @@ export function AssistantView({ history, priorities, bills, goals }: Props) {
               const deposited   = depositMap.get(lk) ?? 0;
               const expectedPct = Math.min(100, Math.max(0, line.pct));
               const actualPct   = gross > 0 ? Math.min(100, (deposited / gross) * 100) : 0;
+              const tier        = priorityTier(line.priority);
+              const isDimmed    = isLowWeek && tier !== 'essential';
               return (
-              <div key={line.priority.id} className={`guide-step${line.shortfall ? ' guide-step-warn' : ''}`}>
+              <div key={line.priority.id} className={`guide-step${line.shortfall ? ' guide-step-warn' : ''}${isDimmed ? ' guide-step-dimmed' : ''}`}>
                 <span className="guide-step-num">{i + 1}</span>
                 <div className="guide-step-body">
-                  <span className="guide-step-name">{line.priority.name}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <span className="guide-step-name">{line.priority.name}</span>
+                    <span className={`guide-tier-badge guide-tier-${tier}`}>
+                      {tier === 'essential' ? 'Essential' : tier === 'flexible' ? 'Flexible' : 'Discretionary'}
+                    </span>
+                  </div>
                   <span className={`guide-step-amount${line.shortfall ? ' shortfall' : ''}`}>
                     ${line.allocated.toFixed(2)}
                     {line.shortfall && (
@@ -283,6 +461,68 @@ export function AssistantView({ history, priorities, bills, goals }: Props) {
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {/* ── Upcoming loan installments ── */}
+      {(upcomingLoans.length > 0 || customLoans.length > 0) && (
+        <div className="card">
+          <h3 className="section-title">Loans & Repayments</h3>
+          <div className="guide-bills">
+
+            {upcomingLoans.map(({ loan, insId, dueDate, amount, overdue }) => {
+              const today = new Date(); today.setHours(0, 0, 0, 0);
+              const days  = Math.round((dueDate.getTime() - today.getTime()) / 86400000);
+              const paidCount   = loan.installments!.filter(i => i.paid).length;
+              const totalCount  = loan.installments!.length;
+              return (
+                <div key={`${loan.id}-${insId}`} className={`guide-bill-row${overdue ? ' guide-bill-overdue' : ''}`}>
+                  <div className="guide-bill-dot" style={{ background: loan.color }} />
+                  <div className="guide-bill-info">
+                    <span className="guide-bill-name">{loan.name}</span>
+                    <span className="guide-bill-when">
+                      {overdue
+                        ? `Overdue — was due ${fmtDate(dueDate)}`
+                        : days === 0 ? `Due today — ${fmtDate(dueDate)}`
+                        : days === 1 ? `Due tomorrow — ${fmtDate(dueDate)}`
+                        : `Due in ${days} days — ${fmtDate(dueDate)}`}
+                      {' · '}{paidCount}/{totalCount} paid
+                    </span>
+                  </div>
+                  <span className="guide-bill-amount" style={{ color: overdue ? 'var(--red)' : undefined }}>
+                    ${amount.toFixed(2)}
+                  </span>
+                </div>
+              );
+            })}
+
+            {customLoans.map(({ loan, remaining }) => {
+              const paidSoFar = loan.payments.reduce((s, p) => s + p.amount, 0);
+              const pct       = loan.totalAmount > 0 ? Math.min(100, (paidSoFar / loan.totalAmount) * 100) : 0;
+              return (
+                <div key={loan.id} className="guide-bill-row">
+                  <div className="guide-bill-dot" style={{ background: loan.color }} />
+                  <div className="guide-bill-info">
+                    <span className="guide-bill-name">{loan.name}</span>
+                    <span className="guide-bill-when">Custom repayment · {pct.toFixed(0)}% paid off</span>
+                    <div className="guide-bill-progress">
+                      <div className="guide-bar-track">
+                        <div className="guide-bar-fill" style={{ width: `${pct}%`, background: loan.color }} />
+                      </div>
+                      <span className="guide-bill-prog-label">
+                        ${paidSoFar.toFixed(2)} of ${loan.totalAmount.toFixed(2)} paid
+                      </span>
+                    </div>
+                  </div>
+                  <span className="guide-bill-amount">
+                    <span style={{ color: 'var(--red)' }}>${remaining.toFixed(2)}</span>
+                    <span className="guide-bill-remaining"> left</span>
+                  </span>
+                </div>
+              );
+            })}
+
           </div>
         </div>
       )}

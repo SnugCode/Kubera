@@ -287,6 +287,7 @@ export default function App() {
             priorities={priorities}
             bills={bills}
             goals={goals}
+            loans={loans}
           />
         )}
         {view === 'stats' && (
