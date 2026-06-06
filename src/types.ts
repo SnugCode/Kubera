@@ -48,9 +48,10 @@ export interface Bill {
 export interface Goal {
   id: string;
   name: string;
+  type: 'long-term' | 'standalone';
   targetAmount: number;
-  months: number;       // how many months to reach the goal
-  saved: number;        // running total of contributions
-  startDate: string;    // ISO date string
+  months: number;       // for long-term: months to reach the goal; 0 for standalone (no deadline)
+  saved: number;
+  startDate: string;
   completed: boolean;
 }
