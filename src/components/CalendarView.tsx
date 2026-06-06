@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { Bill, BillRecurrence, Priority, Goal } from '../types';
+import type { Bill, BillRecurrence, Priority, Goal, Loan } from '../types';
 
 interface Props {
   bills: Bill[];
@@ -7,6 +7,7 @@ interface Props {
   priorities: Priority[];
   onPrioritiesChange: (priorities: Priority[]) => void;
   goals: Goal[];
+  loans: Loan[];
 }
 
 function getLinkKey(item: { linkKey?: string; name: string }): string {
@@ -23,9 +24,10 @@ interface CalEvent {
   meta: string;
   paid: boolean;
   deposited: number;   // cumulative deposited this period (bills only)
-  source: 'bill' | 'priority';
+  source: 'bill' | 'priority' | 'loan';
   billRef?: Bill;
   priorityRef?: Priority;
+  loanRef?: { loan: Loan; installmentId: string };
 }
 
 interface Form {
@@ -120,6 +122,7 @@ function isBillDue(bill: Bill, year: number, month: number, day: number): boolea
 function buildMonthEvents(
   bills: Bill[],
   priorities: Priority[],
+  loans: Loan[],
   year: number,
   month: number
 ): CalEvent[] {
@@ -184,12 +187,33 @@ function buildMonthEvents(
     });
   }
 
+  // Pay-in-4 loan installments
+  for (const loan of loans) {
+    if (loan.type !== 'pay-in-4' || !loan.installments) continue;
+    for (const ins of loan.installments) {
+      const d = new Date(ins.dueDate + 'T00:00:00');
+      if (d.getFullYear() !== year || d.getMonth() !== month) continue;
+      events.push({
+        key:      `loan-${loan.id}-${ins.id}`,
+        name:     loan.name,
+        amount:   ins.amount,
+        color:    loan.color,
+        day:      d.getDate(),
+        meta:     'pay in 4 · installment',
+        paid:     ins.paid,
+        deposited: 0,
+        source:   'loan',
+        loanRef:  { loan, installmentId: ins.id },
+      });
+    }
+  }
+
   return events.sort((a, b) => a.day - b.day);
 }
 
 // ── Component ─────────────────────────────────────────
 
-export function CalendarView({ bills, onChange, priorities, onPrioritiesChange, goals }: Props) {
+export function CalendarView({ bills, onChange, priorities, onPrioritiesChange, goals, loans }: Props) {
   const now = new Date();
   const [year, setYear]               = useState(now.getFullYear());
   const [month, setMonth]             = useState(now.getMonth());
@@ -358,7 +382,7 @@ export function CalendarView({ bills, onChange, priorities, onPrioritiesChange, 
 
   // Derived
   const days       = buildDays(year, month);
-  const allEvents  = buildMonthEvents(bills, priorities, year, month);
+  const allEvents  = buildMonthEvents(bills, priorities, loans, year, month);
   const shown      = (selDay ? allEvents.filter((e) => e.day === selDay) : allEvents)
     .slice()
     .sort((a, b) => {
@@ -469,6 +493,7 @@ export function CalendarView({ bills, onChange, priorities, onPrioritiesChange, 
               const linkedPriority = event.source === 'bill' && priorities.some((p) => getLinkKey(p) === ek);
               const linkedBill     = event.source === 'priority' && bills.some((b) => getLinkKey(b) === ek);
               const linkedGoal     = goals.some((g) => getLinkKey(g) === ek);
+              const isLoan         = event.source === 'loan';
               const useDeposit     = event.source === 'bill' && event.amount > 0;
               const depositPct     = useDeposit ? Math.min(100, (event.deposited / event.amount) * 100) : 0;
               const today          = new Date(); today.setHours(0,0,0,0);
@@ -493,7 +518,12 @@ export function CalendarView({ bills, onChange, priorities, onPrioritiesChange, 
                     {event.amount > 0 && (
                       <span className="bill-amount">${event.amount.toFixed(2)}</span>
                     )}
-                    {!useDeposit && (
+                    {isLoan && (
+                      <span className={`deposit-done-label${event.paid ? '' : ' loan-cal-pending'}`}>
+                        {event.paid ? '✓ Paid' : isPastDue ? 'Overdue' : 'Pending'}
+                      </span>
+                    )}
+                    {!useDeposit && !isLoan && (
                       <button
                         className={`pay-btn${event.paid ? ' paid' : ''}`}
                         onClick={() => togglePaid(event)}

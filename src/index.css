@@ -1054,6 +1054,7 @@ body {
   font-weight: 700;
   white-space: nowrap;
 }
+.loan-cal-pending { color: var(--muted); }
 
 .deposit-progress-row {
   display: flex;
@@ -1367,9 +1368,16 @@ input[type=number] { -moz-appearance: textfield; }
   border-radius: 50%;
   flex-shrink: 0;
 }
-.bb-name  { flex: 1; font-size: 13px; font-weight: 600; color: var(--text); }
-.bb-freq  { font-size: 12px; color: var(--muted); text-transform: capitalize; }
+.bb-name   { flex: 1; font-size: 13px; font-weight: 600; color: var(--text); }
+.bb-freq   { font-size: 12px; color: var(--muted); text-transform: capitalize; }
 .bb-amount { font-size: 13px; font-weight: 700; color: var(--green); white-space: nowrap; }
+.bb-due    { font-size: 11px; font-weight: 500; color: var(--muted); }
+
+.auto-badge.loans-badge {
+  background: rgba(41,128,185,0.12);
+  color: #2980b9;
+  border-color: rgba(41,128,185,0.25);
+}
 
 /* ── Stats Tab ───────────────────────────────────────── */
 .stats-nav-card {
@@ -1521,3 +1529,198 @@ input[type=number] { -moz-appearance: textfield; }
 
 .stats-indiv-date   { font-size: 13px; color: var(--muted); }
 .stats-indiv-amount { font-size: 14px; font-weight: 700; color: var(--text); }
+
+/* ── Loans & Repayments ───────────────────────────────── */
+
+.loan-list { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; }
+
+.loan-card {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--cream);
+  transition: opacity 0.2s;
+}
+.loan-card.loan-done { opacity: 0.55; }
+
+.loan-color-bar { width: 4px; flex-shrink: 0; }
+
+.loan-body { flex: 1; padding: 14px 14px 12px; display: flex; flex-direction: column; gap: 10px; }
+
+/* Header row */
+.loan-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.loan-header-left  { display: flex; flex-direction: column; gap: 3px; }
+.loan-header-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+
+.loan-name  { font-size: 15px; font-weight: 700; color: var(--text); }
+.loan-desc  { font-size: 12px; color: var(--muted); }
+.loan-total { font-size: 16px; font-weight: 800; color: var(--text); }
+
+.loan-type-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 10px;
+  width: fit-content;
+}
+.loan-type-pay-in-4 { background: rgba(41,128,185,0.12); color: #2980b9; }
+.loan-type-custom   { background: rgba(39,174,96,0.12);  color: #27ae60; }
+
+/* Progress */
+.loan-progress-section { display: flex; flex-direction: column; gap: 4px; }
+.loan-progress-row { display: flex; justify-content: space-between; align-items: baseline; }
+.loan-progress-label { font-size: 12px; color: var(--muted); }
+.loan-progress-pct   { font-size: 12px; font-weight: 700; color: var(--text); }
+
+.loan-bar-track {
+  height: 6px;
+  background: var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.loan-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.4s ease;
+}
+.loan-bar-fill.done { background: var(--green) !important; }
+
+/* Pay-in-4 installments */
+.loan-installments { display: flex; flex-direction: column; gap: 6px; }
+
+.loan-ins-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+}
+.loan-ins-row.ins-paid    { opacity: 0.5; }
+.loan-ins-row.ins-overdue { border-color: var(--red); background: rgba(159,61,40,0.05); }
+
+.ins-num  { font-size: 12px; font-weight: 700; color: var(--muted); min-width: 16px; }
+.ins-info { display: flex; align-items: center; gap: 6px; flex: 1; }
+.ins-date { color: var(--text); font-weight: 500; }
+
+.ins-flag {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.ins-flag.overdue  { background: rgba(159,61,40,0.15); color: var(--red); }
+.ins-flag.today    { background: rgba(249,232,184,0.6);  color: #8a6700; }
+.ins-flag.paid-on  { background: rgba(23,107,65,0.12);  color: var(--green); }
+
+.ins-amount { font-weight: 700; color: var(--text); margin-left: auto; }
+
+.ins-paid-check {
+  font-size: 14px;
+  color: var(--green);
+  font-weight: 800;
+  margin-left: 8px;
+}
+
+.ins-pay-btn {
+  padding: 5px 10px;
+  border: none;
+  border-radius: 6px;
+  background: var(--dark);
+  color: var(--gold);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity 0.15s;
+}
+.ins-pay-btn:hover { opacity: 0.82; }
+
+/* Custom deposit row */
+.loan-deposit-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.loan-deposit-row .prefixed-input { flex: 1; }
+
+/* Add form — loan-specific */
+.p4-section { display: flex; flex-direction: column; gap: 10px; }
+.p4-presets {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.preset-btn {
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.preset-btn:hover { background: var(--border); }
+
+.p4-installments { display: flex; flex-direction: column; gap: 6px; }
+.p4-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.p4-num    { font-size: 12px; font-weight: 700; color: var(--muted); width: 16px; }
+.p4-date-input { flex: 1; }
+.p4-amount { font-size: 13px; font-weight: 700; color: var(--green); min-width: 60px; text-align: right; }
+
+.p4-paid-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+}
+.p4-paid-check { cursor: pointer; accent-color: var(--green); width: 14px; height: 14px; }
+
+.p4-row-paid {
+  opacity: 0.55;
+  text-decoration: line-through;
+  text-decoration-color: var(--muted);
+}
+.p4-row-paid .p4-paid-label {
+  opacity: 1;
+  text-decoration: none;
+  color: var(--green);
+}
+
+.empty-hint {
+  font-size: 13px;
+  color: var(--muted);
+  text-align: center;
+  padding: 20px 0 8px;
+}
+.add-toggle-btn {
+  padding: 6px 14px;
+  border: none;
+  border-radius: 8px;
+  background: var(--dark);
+  color: var(--gold);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.add-toggle-btn:hover     { opacity: 0.82; }
+.add-toggle-btn.cancel    { background: var(--border); color: var(--muted); }

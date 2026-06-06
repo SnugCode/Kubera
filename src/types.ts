@@ -9,7 +9,8 @@ export interface Priority {
   percentage?: number;    // used when type === 'percentage'
   dueDay?: number;        // for fixed type: day of month payment is due (1–28)
   paidPeriods?: string[]; // 'YYYY-MM' months marked paid in the calendar
-  autoSum?: boolean;      // true for the auto-managed 'Bills' aggregator priority
+  autoSum?:      boolean; // true for the auto-managed 'Bills' aggregator priority
+  loansAutoSum?: boolean; // true for the auto-managed 'Loans' aggregator priority
 }
 
 export interface AllocationLine {
@@ -48,6 +49,35 @@ export interface Bill {
   category?: 'bill' | 'expense'; // 'bill' = rolls up into Bills priority; 'expense' = standalone
   paidPeriods: string[];   // 'YYYY-MM' monthly · 'YYYY' yearly · 'YYYY-MM-DD' interval/one-time
   deposits?: Record<string, number>; // period key → cumulative deposited amount
+}
+
+export interface LoanInstallment {
+  id:        string;
+  dueDate:   string;    // YYYY-MM-DD
+  amount:    number;
+  paid:      boolean;
+  paidDate?: string;    // YYYY-MM-DD
+}
+
+export interface LoanPayment {
+  id:     string;
+  date:   string;       // YYYY-MM-DD
+  amount: number;
+}
+
+export type LoanType = 'pay-in-4' | 'custom';
+
+export interface Loan {
+  id:             string;
+  name:           string;
+  description?:   string;
+  totalAmount:    number;
+  type:           LoanType;
+  installments?:  LoanInstallment[]; // pay-in-4 only
+  payments:       LoanPayment[];     // all payments made
+  createdDate:    string;
+  completed:      boolean;
+  color:          string;
 }
 
 export interface Goal {

@@ -1,14 +1,15 @@
 import { useState, useEffect } from 'react';
-import { loadAll, savePriorities, saveHistory, saveGoals, saveBills } from './storage';
+import { loadAll, savePriorities, saveHistory, saveGoals, saveBills, saveLoans } from './storage';
 import { PaycheckView } from './components/PaycheckView';
 import { PrioritiesView } from './components/PrioritiesView';
 import { GoalsView } from './components/GoalsView';
 import { CalendarView } from './components/CalendarView';
 import { AssistantView } from './components/AssistantView';
 import { StatsView } from './components/StatsView';
-import type { Priority, PaycheckRecord, Goal, Bill } from './types';
+import { LoansView } from './components/LoansView';
+import type { Priority, PaycheckRecord, Goal, Bill, Loan } from './types';
 
-type View = 'paycheck' | 'priorities' | 'goals' | 'calendar' | 'assistant' | 'stats';
+type View = 'paycheck' | 'priorities' | 'goals' | 'calendar' | 'assistant' | 'stats' | 'loans';
 
 const WKPM = 52 / 12;
 
@@ -30,6 +31,28 @@ function computeBillsMonthlyTotal(bills: Bill[]): number {
     }, 0);
 }
 
+function computeLoansMonthlyTotal(loans: Loan[]): number {
+  const today = new Date();
+  return loans
+    .filter(l => !l.completed)
+    .reduce((sum, l) => {
+      const paid      = l.payments.reduce((s, p) => s + p.amount, 0);
+      const remaining = Math.max(0, l.totalAmount - paid);
+      if (remaining <= 0) return sum;
+      if (l.type === 'pay-in-4' && l.installments) {
+        const futureDates = l.installments
+          .filter(i => !i.paid)
+          .map(i => new Date(i.dueDate + 'T00:00:00'));
+        if (futureDates.length === 0) return sum;
+        const lastMs  = Math.max(...futureDates.map(d => d.getTime()));
+        const months  = Math.max(1, (lastMs - today.getTime()) / (1000 * 60 * 60 * 24 * 30));
+        return sum + remaining / months;
+      }
+      // Custom: treat full remaining as this month's obligation
+      return sum + remaining;
+    }, 0);
+}
+
 export default function App() {
   const [ready, setReady]           = useState(false);
   const [view, setView]             = useState<View>('paycheck');
@@ -37,15 +60,17 @@ export default function App() {
   const [history, setHistory]       = useState<PaycheckRecord[]>([]);
   const [goals, setGoals]           = useState<Goal[]>([]);
   const [bills, setBills]           = useState<Bill[]>([]);
+  const [loans, setLoans]           = useState<Loan[]>([]);
   const [toast, setToast]           = useState('');
 
   // Load all data once on mount
   useEffect(() => {
-    loadAll().then(({ priorities, history, goals, bills }) => {
+    loadAll().then(({ priorities, history, goals, bills, loans }) => {
       setPriorities(priorities);
       setHistory(history);
       setGoals(goals);
       setBills(bills);
+      setLoans(loans);
       setReady(true);
     });
   }, []);
@@ -87,6 +112,44 @@ export default function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bills, ready]);
 
+  // Auto-create / update / remove the Loans aggregator priority whenever loans change
+  useEffect(() => {
+    if (!ready) return;
+    const monthlyTotal = computeLoansMonthlyTotal(loans);
+    const idx = priorities.findIndex(p => p.loansAutoSum);
+
+    if (monthlyTotal > 0) {
+      if (idx >= 0) {
+        if (Math.abs((priorities[idx].amount ?? 0) - monthlyTotal) < 0.01) return;
+        const next = priorities.map((p, i) =>
+          i === idx ? { ...p, amount: monthlyTotal } : p
+        );
+        handlePrioritiesChange(next);
+      } else {
+        // Insert after Bills aggregator, or after last fixed priority
+        let insertAt = priorities.length;
+        for (let i = priorities.length - 1; i >= 0; i--) {
+          if (priorities[i].autoSum) { insertAt = i + 1; break; }
+          if (priorities[i].type === 'fixed') { insertAt = i + 1; }
+        }
+        const loansPriority: Priority = {
+          id:           'loans-auto-sum',
+          name:         'Loans & Repayments',
+          linkKey:      'loans',
+          type:         'fixed',
+          amount:       monthlyTotal,
+          loansAutoSum: true,
+          paidPeriods:  [],
+        };
+        const next = [...priorities.slice(0, insertAt), loansPriority, ...priorities.slice(insertAt)];
+        handlePrioritiesChange(next);
+      }
+    } else if (idx >= 0) {
+      handlePrioritiesChange(priorities.filter(p => !p.loansAutoSum));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loans, ready]);
+
   // ── Mutation handlers ────────────────────────────────────
 
   function handlePrioritiesChange(next: Priority[]) {
@@ -97,6 +160,11 @@ export default function App() {
   function handleBillsChange(next: Bill[]) {
     setBills(next);
     saveBills(next);
+  }
+
+  function handleLoansChange(next: Loan[]) {
+    setLoans(next);
+    saveLoans(next);
   }
 
   function handleGoalsChange(next: Goal[]) {
@@ -175,6 +243,15 @@ export default function App() {
             {bills.length > 0 && <span className="nav-badge">{bills.length}</span>}
           </button>
           <button
+            className={`nav-btn${view === 'loans' ? ' active' : ''}`}
+            onClick={() => setView('loans')}
+          >
+            Loans
+            {loans.filter(l => !l.completed).length > 0 && (
+              <span className="nav-badge">{loans.filter(l => !l.completed).length}</span>
+            )}
+          </button>
+          <button
             className={`nav-btn${view === 'assistant' ? ' active' : ''}`}
             onClick={() => setView('assistant')}
           >
@@ -199,7 +276,7 @@ export default function App() {
           />
         )}
         {view === 'priorities' && (
-          <PrioritiesView priorities={priorities} onChange={handlePrioritiesChange} bills={bills} goals={goals} />
+          <PrioritiesView priorities={priorities} onChange={handlePrioritiesChange} bills={bills} goals={goals} loans={loans} />
         )}
         {view === 'goals' && (
           <GoalsView goals={goals} onChange={handleGoalsChange} bills={bills} priorities={priorities} />
@@ -218,6 +295,9 @@ export default function App() {
             priorities={priorities}
           />
         )}
+        {view === 'loans' && (
+          <LoansView loans={loans} onChange={handleLoansChange} />
+        )}
         {view === 'calendar' && (
           <CalendarView
             bills={bills}
@@ -225,6 +305,7 @@ export default function App() {
             priorities={priorities}
             onPrioritiesChange={handlePrioritiesChange}
             goals={goals}
+            loans={loans}
           />
         )}
       </main>

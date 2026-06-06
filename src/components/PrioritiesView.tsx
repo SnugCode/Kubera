@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { Priority, AllocationType, Bill, Goal } from '../types';
+import type { Priority, AllocationType, Bill, Goal, Loan } from '../types';
 
 const WKPM = 52 / 12;
 
@@ -20,9 +20,10 @@ function billPerPaycheck(b: Bill): number {
 
 interface Props {
   priorities: Priority[];
-  onChange: (priorities: Priority[]) => void;
-  bills: Bill[];
-  goals: Goal[];
+  onChange:   (priorities: Priority[]) => void;
+  bills:      Bill[];
+  goals:      Goal[];
+  loans:      Loan[];
 }
 
 function getLinkKey(item: { linkKey?: string; name: string }): string {
@@ -62,14 +63,29 @@ function formToPriority(f: Form, id: string, existing?: Priority): Priority {
   };
 }
 
-export function PrioritiesView({ priorities, onChange, bills, goals }: Props) {
+export function PrioritiesView({ priorities, onChange, bills, goals, loans }: Props) {
   const [addForm, setAddForm]               = useState<Form>(empty);
   const [editId, setEditId]                 = useState<string | null>(null);
   const [editForm, setEditForm]             = useState<Form>(empty);
   const [showBillsBreak, setShowBillsBreak] = useState(false);
+  const [showLoansBreak, setShowLoansBreak] = useState(false);
 
   // Bills that count toward the autoSum Bills priority
   const aggregatedBills = bills.filter(b => (b.category ?? 'bill') === 'bill' && b.amount > 0);
+
+  // Active loans for the loansAutoSum breakdown
+  const activeLoans = loans.filter(l => !l.completed);
+
+  function loanRemaining(l: Loan): number {
+    const paid = l.payments.reduce((s, p) => s + p.amount, 0);
+    return Math.max(0, l.totalAmount - paid);
+  }
+
+  function loanNextDue(l: Loan): string | null {
+    if (l.type !== 'pay-in-4' || !l.installments) return null;
+    const unpaid = l.installments.filter(i => !i.paid).sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+    return unpaid.length > 0 ? unpaid[0].dueDate : null;
+  }
 
   function add() {
     if (!addForm.name.trim()) return;
@@ -136,7 +152,7 @@ export function PrioritiesView({ priorities, onChange, bills, goals }: Props) {
 
         <div className="priority-list">
           {priorities.map((p, idx) => (
-            <div key={p.id} className={`priority-item${editId === p.id ? ' editing' : ''}${p.autoSum ? ' auto-sum-item' : ''}`}>
+            <div key={p.id} className={`priority-item${editId === p.id ? ' editing' : ''}${p.autoSum || p.loansAutoSum ? ' auto-sum-item' : ''}`}>
 
               {/* ── Auto-managed Bills aggregator ── */}
               {p.autoSum ? (
@@ -155,27 +171,37 @@ export function PrioritiesView({ priorities, onChange, bills, goals }: Props) {
                     </div>
                   </div>
                   <div className="priority-actions">
-                    <button
-                      className="icon-btn"
-                      onClick={() => moveUp(idx)}
-                      disabled={idx === 0}
-                      title="Move up"
-                    >↑</button>
-                    <button
-                      className="icon-btn"
-                      onClick={() => moveDown(idx)}
-                      disabled={idx === priorities.length - 1}
-                      title="Move down"
-                    >↓</button>
-                    <button
-                      className="icon-btn"
-                      onClick={() => setShowBillsBreak(v => !v)}
-                      title="Show bills breakdown"
-                    >
+                    <button className="icon-btn" onClick={() => moveUp(idx)} disabled={idx === 0} title="Move up">↑</button>
+                    <button className="icon-btn" onClick={() => moveDown(idx)} disabled={idx === priorities.length - 1} title="Move down">↓</button>
+                    <button className="icon-btn" onClick={() => setShowBillsBreak(v => !v)} title="Show bills breakdown">
                       {showBillsBreak ? '▲' : '▼'}
                     </button>
                   </div>
                 </div>
+              ) : p.loansAutoSum ? (
+                <div className="auto-sum-row">
+                  <div className="priority-rank">{idx + 1}</div>
+                  <div className="priority-info">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span className="priority-name">{p.name}</span>
+                      <span className="auto-badge loans-badge">Auto</span>
+                    </div>
+                    <div className="priority-tags">
+                      <span className={`type-badge type-${p.type}`}>
+                        ${(p.amount ?? 0).toFixed(2)}/mo · ${((p.amount ?? 0) / WKPM).toFixed(2)}/paycheck
+                      </span>
+                      <span className="auto-badge-sub">{activeLoans.length} loan{activeLoans.length !== 1 ? 's' : ''}</span>
+                    </div>
+                  </div>
+                  <div className="priority-actions">
+                    <button className="icon-btn" onClick={() => moveUp(idx)} disabled={idx === 0} title="Move up">↑</button>
+                    <button className="icon-btn" onClick={() => moveDown(idx)} disabled={idx === priorities.length - 1} title="Move down">↓</button>
+                    <button className="icon-btn" onClick={() => setShowLoansBreak(v => !v)} title="Show loans breakdown">
+                      {showLoansBreak ? '▲' : '▼'}
+                    </button>
+                  </div>
+                </div>
+
               ) : editId === p.id ? (
 
               /* ── Edit form ── */
@@ -259,6 +285,27 @@ export function PrioritiesView({ priorities, onChange, bills, goals }: Props) {
                       <span className="bb-amount">${billPerPaycheck(b).toFixed(2)}/paycheck</span>
                     </div>
                   ))}
+                </div>
+              )}
+
+              {/* ── Loans breakdown (expandable, only for loansAutoSum) ── */}
+              {p.loansAutoSum && showLoansBreak && activeLoans.length > 0 && (
+                <div className="bills-breakdown">
+                  {activeLoans.map(l => {
+                    const remaining = loanRemaining(l);
+                    const nextDue   = loanNextDue(l);
+                    return (
+                      <div key={l.id} className="bills-breakdown-row">
+                        <span className="bb-dot" style={{ background: l.color }} />
+                        <span className="bb-name">{l.name}</span>
+                        <span className="bb-freq">{l.type === 'pay-in-4' ? 'Pay in 4' : 'Custom'}</span>
+                        <span className="bb-amount">
+                          ${remaining.toFixed(2)} left
+                          {nextDue && <span className="bb-due"> · due {nextDue}</span>}
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
 

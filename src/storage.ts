@@ -1,10 +1,11 @@
-import type { Priority, PaycheckRecord, Goal, Bill } from './types';
+import type { Priority, PaycheckRecord, Goal, Bill, Loan } from './types';
 
 export interface AppData {
   priorities: Priority[];
   history:    PaycheckRecord[];
   goals:      Goal[];
   bills:      Bill[];
+  loans:      Loan[];
 }
 
 function makeDefaultPriorities(): Priority[] {
@@ -58,13 +59,14 @@ function lsWrite<T>(key: string, data: T): void {
  * Falls back to localStorage, then built-in defaults.
  */
 export async function loadAll(): Promise<AppData> {
-  const [priorities, history, goals, bills] = await Promise.all([
+  const [priorities, history, goals, bills, loans] = await Promise.all([
     fileRead<Priority[]>('priorities').then(d => d ?? lsRead<Priority[]>('priorities') ?? makeDefaultPriorities()),
     fileRead<PaycheckRecord[]>('history').then(d => d ?? lsRead<PaycheckRecord[]>('history') ?? []),
     fileRead<Goal[]>('goals').then(d => d ?? lsRead<Goal[]>('goals') ?? []),
     fileRead<Bill[]>('bills').then(d => d ?? lsRead<Bill[]>('bills') ?? []),
+    fileRead<Loan[]>('loans').then(d => d ?? lsRead<Loan[]>('loans') ?? []),
   ]);
-  return { priorities, history, goals, bills };
+  return { priorities, history, goals, bills, loans };
 }
 
 /**
@@ -75,7 +77,8 @@ function save<T>(key: string, data: T): void {
   fileWrite(key, data);
 }
 
-export const savePriorities = (d: Priority[])     => save('priorities', d);
+export const savePriorities = (d: Priority[])      => save('priorities', d);
 export const saveHistory    = (d: PaycheckRecord[]) => save('history',    d);
-export const saveGoals      = (d: Goal[])          => save('goals',       d);
-export const saveBills      = (d: Bill[])           => save('bills',       d);
+export const saveGoals      = (d: Goal[])           => save('goals',      d);
+export const saveBills      = (d: Bill[])            => save('bills',      d);
+export const saveLoans      = (d: Loan[])            => save('loans',      d);
