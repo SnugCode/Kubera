@@ -1276,6 +1276,101 @@ input[type=number] { -moz-appearance: textfield; }
 .guide-bill-progress { display: flex; flex-direction: column; gap: 3px; margin-top: 3px; }
 .guide-bill-prog-label { font-size: 11px; color: var(--muted); }
 
+/* ── Category toggle (Bill / Expense) ───────────────── */
+.category-toggle {
+  display: flex;
+  gap: 0;
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  width: fit-content;
+}
+.cat-btn {
+  padding: 7px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  border: none;
+  background: white;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.cat-btn:first-child { border-right: 1.5px solid var(--border); }
+.cat-btn.active { background: var(--dark); color: var(--gold); }
+.cat-btn:hover:not(.active) { background: var(--bg); }
+
+.cat-hint {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+  margin: -4px 0 0;
+}
+
+/* Category badge on bill list rows */
+.cat-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  flex-shrink: 0;
+}
+.cat-badge-bill    { background: #e8f5ee; color: var(--green); border: 1px solid #b2d8c0; }
+.cat-badge-expense { background: #fef3e2; color: #9a5c00; border: 1px solid #e6c97a; }
+
+/* ── Auto-sum Bills priority (Priorities tab) ────────── */
+.auto-sum-item { background: #f9fbf9 !important; border-color: #b2d8c0 !important; }
+
+.auto-sum-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.auto-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #e8f5ee;
+  color: var(--green);
+  border: 1px solid #b2d8c0;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.auto-badge-sub {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.bills-breakdown {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  width: 100%;
+}
+
+.bills-breakdown-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.bb-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.bb-name  { flex: 1; font-size: 13px; font-weight: 600; color: var(--text); }
+.bb-freq  { font-size: 12px; color: var(--muted); text-transform: capitalize; }
+.bb-amount { font-size: 13px; font-weight: 700; color: var(--green); white-space: nowrap; }
+
 /* ── Stats Tab ───────────────────────────────────────── */
 .stats-nav-card {
   display: flex;

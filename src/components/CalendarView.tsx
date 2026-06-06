@@ -37,6 +37,7 @@ interface Form {
   dueDate: string;
   startDate: string;
   intervalDays: string;
+  category: 'bill' | 'expense';
 }
 
 const MONTH_NAMES = [
@@ -50,7 +51,7 @@ const PRIORITY_COLOR = '#15251b';
 
 const emptyForm: Form = {
   name: '', amount: '', recurrence: 'monthly', dueDay: '', dueMonth: '', dueDate: '',
-  startDate: '', intervalDays: '',
+  startDate: '', intervalDays: '', category: 'bill',
 };
 
 // ── Helpers ───────────────────────────────────────────
@@ -335,6 +336,7 @@ export function CalendarView({ bills, onChange, priorities, onPrioritiesChange, 
         id:           crypto.randomUUID(),
         name:         form.name.trim(),
         linkKey:      form.name.trim().toLowerCase(),
+        category:     form.category,
         amount,
         recurrence:   form.recurrence,
         dueDay:       parseInt(form.dueDay) || 1,
@@ -557,7 +559,7 @@ export function CalendarView({ bills, onChange, priorities, onPrioritiesChange, 
       {/* ── Manage bills ── */}
       <div className="card">
         <div className="manage-header">
-          <h3 className="section-title" style={{ marginBottom: 0 }}>Bills &amp; Subscriptions</h3>
+          <h3 className="section-title" style={{ marginBottom: 0 }}>Bills &amp; Expenses</h3>
           <button
             className={`add-toggle-btn${showForm ? ' cancel' : ''}`}
             onClick={() => { setShowForm((v) => !v); setForm(emptyForm); }}
@@ -568,12 +570,34 @@ export function CalendarView({ bills, onChange, priorities, onPrioritiesChange, 
 
         {showForm && (
           <div className="add-form" style={{ marginTop: 14 }}>
+            <div className="category-toggle">
+              <button
+                type="button"
+                className={`cat-btn${form.category === 'bill' ? ' active' : ''}`}
+                onClick={() => setForm({ ...form, category: 'bill' })}
+              >
+                Bill
+              </button>
+              <button
+                type="button"
+                className={`cat-btn${form.category === 'expense' ? ' active' : ''}`}
+                onClick={() => setForm({ ...form, category: 'expense' })}
+              >
+                Expense
+              </button>
+            </div>
+            {form.category === 'bill' && (
+              <p className="cat-hint">Bills roll up into the <strong>Bills</strong> priority — tracked in the calendar with deposit logging.</p>
+            )}
+            {form.category === 'expense' && (
+              <p className="cat-hint">Expenses are tracked in the calendar independently. Set up a matching priority in Priorities if you want it in your allocation.</p>
+            )}
             <input
               className="form-input"
               value={form.name}
               autoFocus
               onChange={(e) => setForm({ ...form, name: e.target.value })}
-              placeholder="Name — e.g. Netflix, Rent, Car insurance..."
+              placeholder={form.category === 'bill' ? 'Name — e.g. Netflix, Internet, Car insurance…' : 'Name — e.g. Rent, Gym membership…'}
               onKeyDown={(e) => e.key === 'Enter' && addBill()}
             />
             <select
@@ -701,7 +725,12 @@ export function CalendarView({ bills, onChange, priorities, onPrioritiesChange, 
               <div key={b.id} className="all-bill-row">
                 <span className="bill-color-dot" style={{ background: b.color }} />
                 <div className="bill-info">
-                  <span className="bill-name">{b.name}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span className="bill-name">{b.name}</span>
+                    <span className={`cat-badge cat-badge-${b.category ?? 'bill'}`}>
+                      {b.category === 'expense' ? 'Expense' : 'Bill'}
+                    </span>
+                  </div>
                   <span className="bill-meta">
                     {b.recurrence === 'weekly'      && b.startDate && `Weekly · from ${b.startDate}`}
                     {b.recurrence === 'fortnightly' && b.startDate && `Fortnightly · from ${b.startDate}`}

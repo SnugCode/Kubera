@@ -1,6 +1,23 @@
 import { useState } from 'react';
 import type { Priority, AllocationType, Bill, Goal } from '../types';
 
+const WKPM = 52 / 12;
+
+function billPerPaycheck(b: Bill): number {
+  if (b.amount <= 0) return 0;
+  switch (b.recurrence) {
+    case 'weekly':      return b.amount;
+    case 'fortnightly': return b.amount / 2;
+    case 'monthly':     return b.amount / WKPM;
+    case 'quarterly':   return b.amount / (3 * WKPM);
+    case 'yearly':      return b.amount / (12 * WKPM);
+    case 'interval':    return b.intervalDays && b.intervalDays > 0
+      ? b.amount * 7 / b.intervalDays
+      : 0;
+    default:            return 0;
+  }
+}
+
 interface Props {
   priorities: Priority[];
   onChange: (priorities: Priority[]) => void;
@@ -46,9 +63,13 @@ function formToPriority(f: Form, id: string, existing?: Priority): Priority {
 }
 
 export function PrioritiesView({ priorities, onChange, bills, goals }: Props) {
-  const [addForm, setAddForm] = useState<Form>(empty);
-  const [editId, setEditId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState<Form>(empty);
+  const [addForm, setAddForm]               = useState<Form>(empty);
+  const [editId, setEditId]                 = useState<string | null>(null);
+  const [editForm, setEditForm]             = useState<Form>(empty);
+  const [showBillsBreak, setShowBillsBreak] = useState(false);
+
+  // Bills that count toward the autoSum Bills priority
+  const aggregatedBills = bills.filter(b => (b.category ?? 'bill') === 'bill' && b.amount > 0);
 
   function add() {
     if (!addForm.name.trim()) return;
@@ -115,8 +136,49 @@ export function PrioritiesView({ priorities, onChange, bills, goals }: Props) {
 
         <div className="priority-list">
           {priorities.map((p, idx) => (
-            <div key={p.id} className={`priority-item${editId === p.id ? ' editing' : ''}`}>
-              {editId === p.id ? (
+            <div key={p.id} className={`priority-item${editId === p.id ? ' editing' : ''}${p.autoSum ? ' auto-sum-item' : ''}`}>
+
+              {/* ── Auto-managed Bills aggregator ── */}
+              {p.autoSum ? (
+                <div className="auto-sum-row">
+                  <div className="priority-rank">{idx + 1}</div>
+                  <div className="priority-info">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span className="priority-name">{p.name}</span>
+                      <span className="auto-badge">Auto</span>
+                    </div>
+                    <div className="priority-tags">
+                      <span className={`type-badge type-${p.type}`}>
+                        ${(p.amount ?? 0).toFixed(2)}/mo · ${((p.amount ?? 0) / WKPM).toFixed(2)}/paycheck
+                      </span>
+                      <span className="auto-badge-sub">{aggregatedBills.length} bill{aggregatedBills.length !== 1 ? 's' : ''}</span>
+                    </div>
+                  </div>
+                  <div className="priority-actions">
+                    <button
+                      className="icon-btn"
+                      onClick={() => moveUp(idx)}
+                      disabled={idx === 0}
+                      title="Move up"
+                    >↑</button>
+                    <button
+                      className="icon-btn"
+                      onClick={() => moveDown(idx)}
+                      disabled={idx === priorities.length - 1}
+                      title="Move down"
+                    >↓</button>
+                    <button
+                      className="icon-btn"
+                      onClick={() => setShowBillsBreak(v => !v)}
+                      title="Show bills breakdown"
+                    >
+                      {showBillsBreak ? '▲' : '▼'}
+                    </button>
+                  </div>
+                </div>
+              ) : editId === p.id ? (
+
+              /* ── Edit form ── */
                 <div className="inline-edit">
                   <input
                     className="edit-input"
@@ -161,6 +223,8 @@ export function PrioritiesView({ priorities, onChange, bills, goals }: Props) {
                   <button className="btn-sm" onClick={() => setEditId(null)}>Cancel</button>
                 </div>
               ) : (
+
+              /* ── Normal row ── */
                 <>
                   <div className="priority-rank">{idx + 1}</div>
                   <div className="priority-info">
@@ -183,6 +247,21 @@ export function PrioritiesView({ priorities, onChange, bills, goals }: Props) {
                   </div>
                 </>
               )}
+
+              {/* ── Bills breakdown (expandable, only for autoSum) ── */}
+              {p.autoSum && showBillsBreak && aggregatedBills.length > 0 && (
+                <div className="bills-breakdown">
+                  {aggregatedBills.map(b => (
+                    <div key={b.id} className="bills-breakdown-row">
+                      <span className="bb-dot" style={{ background: b.color }} />
+                      <span className="bb-name">{b.name}</span>
+                      <span className="bb-freq">{b.recurrence}</span>
+                      <span className="bb-amount">${billPerPaycheck(b).toFixed(2)}/paycheck</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
             </div>
           ))}
         </div>

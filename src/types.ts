@@ -9,6 +9,7 @@ export interface Priority {
   percentage?: number;    // used when type === 'percentage'
   dueDay?: number;        // for fixed type: day of month payment is due (1–28)
   paidPeriods?: string[]; // 'YYYY-MM' months marked paid in the calendar
+  autoSum?: boolean;      // true for the auto-managed 'Bills' aggregator priority
 }
 
 export interface AllocationLine {
@@ -44,6 +45,7 @@ export interface Bill {
   startDate?: string;      // for interval: ISO date of first occurrence
   intervalDays?: number;   // for interval: e.g. 28
   color: string;
+  category?: 'bill' | 'expense'; // 'bill' = rolls up into Bills priority; 'expense' = standalone
   paidPeriods: string[];   // 'YYYY-MM' monthly · 'YYYY' yearly · 'YYYY-MM-DD' interval/one-time
   deposits?: Record<string, number>; // period key → cumulative deposited amount
 }
