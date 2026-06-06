@@ -14,12 +14,14 @@ function getLinkKey(item: { linkKey?: string; name: string }): string {
 
 interface AddForm {
   type: 'long-term' | 'standalone';
+  ltMode: 'duration' | 'fixed';
   name: string;
   targetAmount: string;
   months: string;
+  monthlyAllocation: string;
 }
 
-const emptyForm: AddForm = { type: 'long-term', name: '', targetAmount: '', months: '' };
+const emptyForm: AddForm = { type: 'long-term', ltMode: 'duration', name: '', targetAmount: '', months: '', monthlyAllocation: '' };
 const WEEKS_PER_MONTH = 52 / 12;
 
 function getDeadline(startDate: string, months: number): Date {
@@ -38,6 +40,9 @@ function isOverdue(startDate: string, months: number): boolean {
 }
 
 function perPaycheck(goal: Goal): number {
+  if (goal.allocationMode === 'fixed' && goal.monthlyAllocation) {
+    return goal.monthlyAllocation / WEEKS_PER_MONTH;
+  }
   const remaining = goal.targetAmount - goal.saved;
   if (remaining <= 0) return 0;
   if (!goal.months) return 0;
@@ -121,19 +126,33 @@ function GoalCard({ goal, onContribute, onComplete, onRemove, isActive = true, l
         <span className="goal-pct">{pct.toFixed(0)}%</span>
       </div>
 
-      {goal.type === 'long-term' && deadline && (
-        <div className={`goal-deadline${overdue ? ' overdue' : ''}`}>
-          <span>
-            {overdue
-              ? `Overdue — was due ${deadline.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}`
-              : `Due ${deadline.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })} · ${mLeft.toFixed(1)} months left`}
-          </span>
-          {!overdue && remaining > 0 && (
-            <span className="per-paycheck">
-              ~${needed.toFixed(2)}<span className="per-paycheck-label">/paycheck</span>
-            </span>
-          )}
-        </div>
+      {goal.type === 'long-term' && (
+        goal.allocationMode === 'fixed' && goal.monthlyAllocation ? (
+          <div className="goal-deadline">
+            <span>${goal.monthlyAllocation.toFixed(2)}/mo · ${(goal.monthlyAllocation / WEEKS_PER_MONTH).toFixed(2)}/paycheck</span>
+            {remaining > 0 && (
+              <span className="per-paycheck">
+                ~{(remaining / goal.monthlyAllocation).toFixed(1)}
+                <span className="per-paycheck-label"> mo left</span>
+              </span>
+            )}
+          </div>
+        ) : (
+          deadline ? (
+            <div className={`goal-deadline${overdue ? ' overdue' : ''}`}>
+              <span>
+                {overdue
+                  ? `Overdue — was due ${deadline.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}`
+                  : `Due ${deadline.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })} · ${mLeft.toFixed(1)} months left`}
+              </span>
+              {!overdue && remaining > 0 && (
+                <span className="per-paycheck">
+                  ~${needed.toFixed(2)}<span className="per-paycheck-label">/paycheck</span>
+                </span>
+              )}
+            </div>
+          ) : null
+        )
       )}
 
       {isActive && (
@@ -191,24 +210,27 @@ export function GoalsView({ goals, onChange, bills, priorities }: Props) {
     const target = parseFloat(form.targetAmount);
     if (!form.name.trim() || !target) return;
     if (form.type === 'long-term') {
-      const months = parseInt(form.months, 10);
-      if (!months || months < 1) return;
+      if (form.ltMode === 'duration' && (!form.months || parseInt(form.months) < 1)) return;
+      if (form.ltMode === 'fixed'    && (!form.monthlyAllocation || parseFloat(form.monthlyAllocation) <= 0)) return;
     }
+    const isFixed = form.type === 'long-term' && form.ltMode === 'fixed';
     onChange([
       ...goals,
       {
-        id:          crypto.randomUUID(),
-        name:        form.name.trim(),
-        linkKey:     form.name.trim().toLowerCase(),
-        type:        form.type,
-        targetAmount: target,
-        months:      form.type === 'long-term' ? parseInt(form.months, 10) : 0,
-        saved:       0,
-        startDate:   new Date().toISOString(),
-        completed:   false,
+        id:                crypto.randomUUID(),
+        name:              form.name.trim(),
+        linkKey:           form.name.trim().toLowerCase(),
+        type:              form.type,
+        allocationMode:    form.type === 'long-term' ? form.ltMode : undefined,
+        monthlyAllocation: isFixed ? parseFloat(form.monthlyAllocation) : undefined,
+        targetAmount:      target,
+        months:            form.type === 'long-term' && form.ltMode === 'duration' ? parseInt(form.months, 10) : 0,
+        saved:             0,
+        startDate:         new Date().toISOString(),
+        completed:         false,
       },
     ]);
-    setForm({ ...emptyForm, type: form.type });
+    setForm({ ...emptyForm, type: form.type, ltMode: form.ltMode });
     setShowForm(false);
   }
 
@@ -248,7 +270,10 @@ export function GoalsView({ goals, onChange, bills, priorities }: Props) {
     !!form.name.trim() &&
     !!form.targetAmount &&
     parseFloat(form.targetAmount) > 0 &&
-    (form.type === 'standalone' || (!!form.months && parseInt(form.months) > 0));
+    (form.type === 'standalone' ||
+      (form.ltMode === 'duration'
+        ? (!!form.months && parseInt(form.months) > 0)
+        : (!!form.monthlyAllocation && parseFloat(form.monthlyAllocation) > 0)));
 
   const hasAny = goals.length > 0;
 
@@ -388,10 +413,25 @@ export function GoalsView({ goals, onChange, bills, priorities }: Props) {
               </button>
             </div>
 
+            {form.type === 'long-term' && (
+              <div className="goal-type-toggle">
+                <button
+                  className={`type-btn${form.ltMode === 'duration' ? ' active' : ''}`}
+                  onClick={() => setForm({ ...form, ltMode: 'duration' })}
+                >By Duration</button>
+                <button
+                  className={`type-btn${form.ltMode === 'fixed' ? ' active' : ''}`}
+                  onClick={() => setForm({ ...form, ltMode: 'fixed' })}
+                >Fixed Amount</button>
+              </div>
+            )}
+
             <p className="hint-text" style={{ marginTop: 2, marginBottom: 4 }}>
-              {form.type === 'long-term'
-                ? 'Runs alongside other goals — allocate a set amount each paycheck.'
-                : 'Priority queue — focus and contribute to this until done, then move to the next.'}
+              {form.type === 'standalone'
+                ? 'Priority queue — focus and contribute to this until done, then move to the next.'
+                : form.ltMode === 'duration'
+                  ? 'Set a target date — the app calculates how much to put aside each paycheck.'
+                  : 'Set a monthly amount — the app calculates how long until the goal is reached.'}
             </p>
 
             <input
@@ -416,7 +456,7 @@ export function GoalsView({ goals, onChange, bills, priorities }: Props) {
                   placeholder="Target amount"
                 />
               </div>
-              {form.type === 'long-term' && (
+              {form.type === 'long-term' && form.ltMode === 'duration' && (
                 <div className="prefixed-input" style={{ flex: 1 }}>
                   <input
                     className="form-input no-border-right"
@@ -430,13 +470,36 @@ export function GoalsView({ goals, onChange, bills, priorities }: Props) {
                   <span className="suffix">mo</span>
                 </div>
               )}
+              {form.type === 'long-term' && form.ltMode === 'fixed' && (
+                <div className="prefixed-input" style={{ flex: 1 }}>
+                  <span className="prefix">$</span>
+                  <input
+                    className="form-input no-border-left"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={form.monthlyAllocation}
+                    onChange={(e) => setForm({ ...form, monthlyAllocation: e.target.value })}
+                    placeholder="per month"
+                  />
+                </div>
+              )}
             </div>
 
-            {form.type === 'long-term' && form.targetAmount && form.months &&
+            {form.type === 'long-term' && form.ltMode === 'duration' &&
+              form.targetAmount && form.months &&
               parseFloat(form.targetAmount) > 0 && parseInt(form.months) > 0 && (
               <div className="goal-preview">
-                ~${(parseFloat(form.targetAmount) / (parseInt(form.months) * WEEKS_PER_MONTH)).toFixed(2)} per paycheck
+                ~${(parseFloat(form.targetAmount) / (parseInt(form.months) * WEEKS_PER_MONTH)).toFixed(2)}/paycheck
                 for {form.months} month{parseInt(form.months) !== 1 ? 's' : ''}
+              </div>
+            )}
+            {form.type === 'long-term' && form.ltMode === 'fixed' &&
+              form.targetAmount && form.monthlyAllocation &&
+              parseFloat(form.targetAmount) > 0 && parseFloat(form.monthlyAllocation) > 0 && (
+              <div className="goal-preview">
+                ${(parseFloat(form.monthlyAllocation) / WEEKS_PER_MONTH).toFixed(2)}/paycheck
+                · done in ~{(parseFloat(form.targetAmount) / parseFloat(form.monthlyAllocation)).toFixed(1)} months
               </div>
             )}
 

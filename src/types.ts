@@ -50,10 +50,12 @@ export interface Bill {
 export interface Goal {
   id: string;
   name: string;
-  linkKey?: string;       // normalized name for cross-category linking
+  linkKey?: string;
   type: 'long-term' | 'standalone';
+  allocationMode?: 'duration' | 'fixed'; // long-term only; defaults to 'duration' for old data
+  monthlyAllocation?: number;            // long-term fixed: monthly amount set aside ($X/mo ÷ (52/12) per paycheck)
   targetAmount: number;
-  months: number;       // for long-term: months to reach the goal; 0 for standalone (no deadline)
+  months: number;       // duration mode: target months; fixed mode / standalone: 0
   saved: number;
   startDate: string;
   completed: boolean;

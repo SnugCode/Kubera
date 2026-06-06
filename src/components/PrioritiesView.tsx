@@ -136,26 +136,15 @@ export function PrioritiesView({ priorities, onChange, bills, goals }: Props) {
                     <option value="remainder">Remainder</option>
                   </select>
                   {editForm.type === 'fixed' && (
-                    <>
-                      <input
-                        className="edit-input narrow"
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={editForm.amount}
-                        onChange={(e) => setEditForm({ ...editForm, amount: e.target.value })}
-                        placeholder="$/mo"
-                      />
-                      <input
-                        className="edit-input narrow"
-                        type="number"
-                        min="1"
-                        max="28"
-                        value={editForm.dueDay}
-                        onChange={(e) => setEditForm({ ...editForm, dueDay: e.target.value })}
-                        placeholder="due day"
-                      />
-                    </>
+                    <input
+                      className="edit-input narrow"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={editForm.amount}
+                      onChange={(e) => setEditForm({ ...editForm, amount: e.target.value })}
+                      placeholder="$/mo"
+                    />
                   )}
                   {editForm.type === 'percentage' && (
                     <input
@@ -235,7 +224,7 @@ export function PrioritiesView({ priorities, onChange, bills, goals }: Props) {
               </div>
               {addForm.amount && parseFloat(addForm.amount) > 0 && (
                 <div className="monthly-breakdown">
-                  ${(parseFloat(addForm.amount) / 4).toFixed(2)} set aside each paycheck
+                  ${(parseFloat(addForm.amount) / (52 / 12)).toFixed(2)} set aside each paycheck
                 </div>
               )}
               <div className="prefixed-input">

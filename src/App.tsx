@@ -2,12 +2,11 @@ import { useState, useEffect } from 'react';
 import { loadAll, savePriorities, saveHistory, saveGoals, saveBills } from './storage';
 import { PaycheckView } from './components/PaycheckView';
 import { PrioritiesView } from './components/PrioritiesView';
-import { HistoryView } from './components/HistoryView';
 import { GoalsView } from './components/GoalsView';
 import { CalendarView } from './components/CalendarView';
 import type { Priority, PaycheckRecord, Goal, Bill } from './types';
 
-type View = 'paycheck' | 'priorities' | 'history' | 'goals' | 'calendar';
+type View = 'paycheck' | 'priorities' | 'goals' | 'calendar';
 
 export default function App() {
   const [ready, setReady]           = useState(false);
@@ -67,10 +66,12 @@ export default function App() {
   if (!ready) {
     return (
       <div className="app">
-        <header className="header">
-          <h1 className="app-title">KUBERA</h1>
-          <p className="app-subtitle">Paycheck Allocator</p>
-        </header>
+        <div className="header-block">
+          <header className="header">
+            <h1 className="app-title">KUBERA</h1>
+            <p className="app-subtitle">Personal Finance Manager</p>
+          </header>
+        </div>
         <div className="app-loading">Loading your data…</div>
       </div>
     );
@@ -78,58 +79,56 @@ export default function App() {
 
   return (
     <div className="app">
-      <header className="header">
-        <h1 className="app-title">KUBERA</h1>
-        <p className="app-subtitle">Paycheck Allocator</p>
-      </header>
+      <div className="header-block">
+        <header className="header">
+          <h1 className="app-title">KUBERA</h1>
+          <p className="app-subtitle">Personal Finance Manager</p>
+        </header>
 
-      <nav className="nav">
-        <button
-          className={`nav-btn${view === 'paycheck' ? ' active' : ''}`}
-          onClick={() => setView('paycheck')}
-        >
-          This Paycheck
-        </button>
-        <button
-          className={`nav-btn${view === 'priorities' ? ' active' : ''}`}
-          onClick={() => setView('priorities')}
-        >
-          Priorities
-        </button>
-        <button
-          className={`nav-btn${view === 'history' ? ' active' : ''}`}
-          onClick={() => setView('history')}
-        >
-          History
-          {history.length > 0 && <span className="nav-badge">{history.length}</span>}
-        </button>
-        <button
-          className={`nav-btn${view === 'goals' ? ' active' : ''}`}
-          onClick={() => setView('goals')}
-        >
-          Goals
-          {goals.filter((g) => !g.completed).length > 0 && (
-            <span className="nav-badge">{goals.filter((g) => !g.completed).length}</span>
-          )}
-        </button>
-        <button
-          className={`nav-btn${view === 'calendar' ? ' active' : ''}`}
-          onClick={() => setView('calendar')}
-        >
-          Bills
-          {bills.length > 0 && <span className="nav-badge">{bills.length}</span>}
-        </button>
-      </nav>
+        <nav className="nav">
+          <button
+            className={`nav-btn${view === 'paycheck' ? ' active' : ''}`}
+            onClick={() => setView('paycheck')}
+          >
+            Paychecks
+            {history.length > 0 && <span className="nav-badge">{history.length}</span>}
+          </button>
+          <button
+            className={`nav-btn${view === 'priorities' ? ' active' : ''}`}
+            onClick={() => setView('priorities')}
+          >
+            Priorities
+          </button>
+          <button
+            className={`nav-btn${view === 'goals' ? ' active' : ''}`}
+            onClick={() => setView('goals')}
+          >
+            Goals
+            {goals.filter((g) => !g.completed).length > 0 && (
+              <span className="nav-badge">{goals.filter((g) => !g.completed).length}</span>
+            )}
+          </button>
+          <button
+            className={`nav-btn${view === 'calendar' ? ' active' : ''}`}
+            onClick={() => setView('calendar')}
+          >
+            Bills
+            {bills.length > 0 && <span className="nav-badge">{bills.length}</span>}
+          </button>
+        </nav>
+      </div>
 
       <main className="main">
         {view === 'paycheck' && (
-          <PaycheckView priorities={priorities} onSave={handleSavePaycheck} />
+          <PaycheckView
+            priorities={priorities}
+            onSave={handleSavePaycheck}
+            history={history}
+            onDelete={handleDeleteRecord}
+          />
         )}
         {view === 'priorities' && (
           <PrioritiesView priorities={priorities} onChange={handlePrioritiesChange} bills={bills} goals={goals} />
-        )}
-        {view === 'history' && (
-          <HistoryView history={history} onDelete={handleDeleteRecord} />
         )}
         {view === 'goals' && (
           <GoalsView goals={goals} onChange={handleGoalsChange} bills={bills} priorities={priorities} />

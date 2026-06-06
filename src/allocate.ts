@@ -8,10 +8,12 @@ export function allocate(gross: number, priorities: Priority[]): AllocationResul
   let remaining = gross;
   const lines: AllocationLine[] = [];
 
-  // 1. Fixed amounts in priority order — amount is monthly, divide by 4 for weekly paycheck
+  // 1. Fixed amounts in priority order — amount is monthly; use 52/12 weeks-per-month so
+  //    5-paycheck months are handled correctly over the year.
+  const WEEKS_PER_MONTH = 52 / 12;
   for (const p of priorities) {
     if (p.type !== 'fixed') continue;
-    const want = (p.amount ?? 0) / 4;
+    const want = (p.amount ?? 0) / WEEKS_PER_MONTH;
     const got = Math.min(want, remaining);
     lines.push({ priority: p, allocated: got, pct: (got / gross) * 100, shortfall: got < want });
     remaining -= got;
