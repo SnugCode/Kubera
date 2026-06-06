@@ -29,18 +29,20 @@ export interface PaycheckRecord {
   result: AllocationResult;
 }
 
-export type BillRecurrence = 'monthly' | 'yearly' | 'one-time';
+export type BillRecurrence = 'monthly' | 'yearly' | 'one-time' | 'interval';
 
 export interface Bill {
   id: string;
   name: string;
   amount: number;
   recurrence: BillRecurrence;
-  dueDay: number;       // for monthly/yearly: day of month (1–28)
-  dueMonth?: number;    // for yearly: 1–12
-  dueDate?: string;     // for one-time: ISO date string
+  dueDay: number;          // for monthly/yearly: day of month (1–28)
+  dueMonth?: number;       // for yearly: 1–12
+  dueDate?: string;        // for one-time: ISO date string
+  startDate?: string;      // for interval: ISO date of first occurrence
+  intervalDays?: number;   // for interval: e.g. 28
   color: string;
-  paidPeriods: string[]; // 'YYYY-MM' monthly · 'YYYY' yearly · ISO date one-time
+  paidPeriods: string[];   // 'YYYY-MM' monthly · 'YYYY' yearly · 'YYYY-MM-DD' interval/one-time
 }
 
 export interface Goal {

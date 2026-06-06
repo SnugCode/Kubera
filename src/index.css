@@ -423,6 +423,7 @@ body {
 
 /* Add form */
 .add-form { display: flex; flex-direction: column; gap: 10px; }
+.form-label { display: block; font-size: 12px; font-weight: 600; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.04em; }
 
 .form-input, .form-select {
   width: 100%;
