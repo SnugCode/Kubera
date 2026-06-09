@@ -8,7 +8,6 @@ dist/
 
 # Tool and agent directories
 .claude/
-.codex
 
 # Persistent local data — never commit your personal financial data
 data/

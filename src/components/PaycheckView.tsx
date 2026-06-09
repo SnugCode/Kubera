@@ -28,7 +28,7 @@ export function PaycheckView({ priorities, onSave, history, onDelete }: Props) {
     if (gross <= 0) return;
     onSave({
       id:   crypto.randomUUID(),
-      date: new Date(date + 'T12:00:00').toISOString(),
+      date,   // stored as YYYY-MM-DD
       gross,
       result,
     });

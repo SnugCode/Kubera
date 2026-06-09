@@ -15,6 +15,11 @@ function fmtDate(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+// Handles both 'YYYY-MM-DD' (new) and full ISO strings (legacy records)
+function parseRecordDate(s: string): Date {
+  return s.includes('T') ? new Date(s) : new Date(s + 'T00:00:00');
+}
+
 function thisWeekMonday(): Date {
   const now = new Date();
   const dow = now.getDay();
@@ -29,7 +34,7 @@ function getThisWeekPaycheck(history: PaycheckRecord[]): PaycheckRecord | null {
   return (
     [...history]
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-      .find(r => new Date(r.date + 'T00:00:00') >= monday) ?? null
+      .find(r => parseRecordDate(r.date) >= monday) ?? null
   );
 }
 
@@ -37,7 +42,7 @@ function getThisWeekPaycheck(history: PaycheckRecord[]): PaycheckRecord | null {
 function predictWeeklyIncome(history: PaycheckRecord[]): number | null {
   const monday = thisWeekMonday();
   const past = [...history]
-    .filter(r => new Date(r.date + 'T00:00:00') < monday)
+    .filter(r => parseRecordDate(r.date) < monday)
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
     .slice(0, 8);
   if (past.length === 0) return null;
@@ -362,6 +367,28 @@ export function AssistantView({ history, priorities, bills, goals, loans }: Prop
     if (dep > 0) depositMap.set(lk, dep);
   }
 
+  // Bills aggregator: sum deposits across bill-category items that don't have their own priority
+  const billsAggDeposited = bills
+    .filter(b => {
+      if ((b.category ?? 'bill') !== 'bill') return false;
+      const lk = (b.linkKey ?? b.name).trim().toLowerCase();
+      return !priorities.some(p => !p.autoSum && !p.loansAutoSum && (p.linkKey ?? p.name).trim().toLowerCase() === lk);
+    })
+    .reduce((sum, b) => sum + getActiveDeposited(b), 0);
+  if (billsAggDeposited > 0) depositMap.set('bills', billsAggDeposited);
+
+  // Loans aggregator: sum all payments toward active loans (cumulative, not just this week)
+  const monday = thisWeekMonday();
+  const loansAggDeposited = loans.reduce((sum, loan) =>
+    sum + loan.payments
+      .filter(p => parseRecordDate(p.date) >= monday)
+      .reduce((s, p) => s + p.amount, 0), 0);
+  if (loansAggDeposited > 0) depositMap.set('loans', loansAggDeposited);
+
+  // Quick lookup: linkKey → Bill (for multi-week saving detection)
+  const billMap = new Map<string, Bill>();
+  for (const b of bills) billMap.set((b.linkKey ?? b.name).trim().toLowerCase(), b);
+
   return (
     <div className="view">
 
@@ -371,7 +398,7 @@ export function AssistantView({ history, priorities, bills, goals, loans }: Prop
           <div>
             <h2 className="guide-title">This Week's Allocation Guide</h2>
             <p className="guide-sub">
-              Paycheck of <strong>${gross.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong> entered on {fmtDate(new Date(date + 'T00:00:00'))}
+              Paycheck of <strong>${gross.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong> entered on {fmtDate(parseRecordDate(date))}
             </p>
           </div>
           {delta !== null && (
@@ -425,19 +452,52 @@ export function AssistantView({ history, priorities, bills, goals, loans }: Prop
       )}
 
       {/* ── Step-by-step allocations ── */}
-      {priorities.length > 0 && (
+      {priorities.length > 0 && (() => {
+        // Pre-compute per-line deposit state
+        const lineData = result.lines.map((line, i) => {
+          const lk        = (line.priority.linkKey ?? line.priority.name).trim().toLowerCase();
+          const deposited = depositMap.get(lk) ?? 0;
+          const overage   = deposited > line.allocated + 0.01 ? deposited - line.allocated : 0;
+
+          // Resolve a savings target — the total amount the user is saving toward
+          const billTarget: number | null =
+            line.priority.autoSum      ? (line.priority.amount ?? null) :
+            line.priority.loansAutoSum ? (line.priority.amount ?? null) :
+            (billMap.get(lk)?.amount ?? null);
+
+          // Multi-week saving: deposited more than this week's slice, but still under the full target
+          const isMultiWeek  = overage > 0 && billTarget != null && deposited < billTarget - 0.01;
+          // Fully covered: deposited at or past the total target
+          const isFullySaved = overage > 0 && billTarget != null && deposited >= billTarget - 0.01;
+          // Genuinely over budget: no bill target to compare against, just over this week's slice
+          const isOver       = overage > 0 && !isMultiWeek && !isFullySaved;
+
+          return { line, i, lk, deposited, overage, billTarget, isMultiWeek, isFullySaved, isOver };
+        });
+        // Only count lines that are truly over (not multi-week saving) for the banner
+        const totalOverage = lineData.reduce((s, d) => s + (d.isOver ? d.overage : 0), 0);
+        const overCount    = lineData.filter(d => d.isOver).length;
+
+        return (
         <div className="card">
           <h3 className="section-title">Where to put your money</h3>
+
+          {totalOverage > 0.01 && (
+            <div className="guide-over-note">
+              You've deposited <strong>${totalOverage.toFixed(2)}</strong> more than planned across {overCount} item{overCount !== 1 ? 's' : ''}.
+              Items shown in amber are over-budget — unfunded priorities have less room as a result.
+            </div>
+          )}
+
           <div className="guide-steps">
-            {result.lines.map((line, i) => {
-              const lk          = (line.priority.linkKey ?? line.priority.name).trim().toLowerCase();
-              const deposited   = depositMap.get(lk) ?? 0;
+            {lineData.map(({ line, i, deposited, overage, billTarget, isMultiWeek, isFullySaved, isOver }) => {
               const expectedPct = Math.min(100, Math.max(0, line.pct));
               const actualPct   = gross > 0 ? Math.min(100, (deposited / gross) * 100) : 0;
+              const savePct     = billTarget && billTarget > 0 ? Math.min(100, (deposited / billTarget) * 100) : 0;
               const tier        = priorityTier(i);
               const isDimmed    = isLowWeek && tier !== 'essential';
               return (
-              <div key={line.priority.id} className={`guide-step${line.shortfall ? ' guide-step-warn' : ''}${isDimmed ? ' guide-step-dimmed' : ''}`}>
+              <div key={line.priority.id} className={`guide-step${line.shortfall ? ' guide-step-warn' : ''}${isDimmed ? ' guide-step-dimmed' : ''}${isOver ? ' guide-step-over' : ''}${isFullySaved ? ' guide-step-full' : ''}`}>
                 <span className="guide-step-num">{i + 1}</span>
                 <div className="guide-step-body">
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
@@ -445,26 +505,56 @@ export function AssistantView({ history, priorities, bills, goals, loans }: Prop
                     <span className={`guide-tier-badge guide-tier-${tier}`}>
                       {tier === 'essential' ? 'Essential' : 'Good to have'}
                     </span>
+                    {isOver       && <span className="guide-over-chip">↑ +${overage.toFixed(2)} over</span>}
+                    {isFullySaved && <span className="guide-saved-chip">✓ Fully covered</span>}
                   </div>
-                  <span className={`guide-step-amount${line.shortfall ? ' shortfall' : ''}`}>
-                    ${line.allocated.toFixed(2)}
-                    {line.shortfall && (
+                  <span className={`guide-step-amount${line.shortfall ? ' shortfall' : ''}${isOver ? ' over-alloc' : ''}`}>
+                    ${isOver ? deposited.toFixed(2) : line.allocated.toFixed(2)}
+                    {isOver && (
+                      <span className="guide-step-note"> (suggested ${line.allocated.toFixed(2)})</span>
+                    )}
+                    {isMultiWeek && (
+                      <span className="guide-step-note"> this paycheck</span>
+                    )}
+                    {isFullySaved && (
+                      <span className="guide-step-note"> · ${deposited.toFixed(2)} saved</span>
+                    )}
+                    {!isOver && !isMultiWeek && !isFullySaved && line.shortfall && (
                       <span className="guide-step-note"> (short — need ${((line.priority.amount ?? 0) / WKPM).toFixed(2)})</span>
                     )}
-                    {!line.shortfall && line.priority.type === 'fixed' && (
+                    {!isOver && !isMultiWeek && !isFullySaved && !line.shortfall && line.priority.type === 'fixed' && (
                       <span className="guide-step-note"> / ${((line.priority.amount ?? 0) / WKPM).toFixed(2)} needed</span>
                     )}
-                    {line.priority.type === 'percentage' && (
+                    {!isOver && !isMultiWeek && !isFullySaved && line.priority.type === 'percentage' && (
                       <span className="guide-step-note"> ({line.pct.toFixed(1)}%)</span>
                     )}
                   </span>
                 </div>
+
+                {/* Allocation bar — this paycheck's contribution */}
                 <div className="guide-bar-track guide-bar-dual">
                   <div className="guide-bar-expected" style={{ width: `${expectedPct}%` }} />
-                  {deposited > 0 && (
-                    <div className="guide-bar-actual" style={{ width: `${actualPct}%` }} />
+                  {deposited > 0 && !isMultiWeek && !isFullySaved && (
+                    <div className={`guide-bar-actual${isOver ? ' over' : ''}`} style={{ width: `${actualPct}%` }} />
                   )}
                 </div>
+
+                {/* Cumulative savings progress bar for multi-week items */}
+                {(isMultiWeek || isFullySaved) && billTarget != null && (
+                  <div className="guide-cumulative">
+                    <div className="guide-cumulative-label">
+                      <span className="guide-cumulative-saved">${deposited.toFixed(2)} saved</span>
+                      <span className="guide-cumulative-of"> of ${billTarget.toFixed(2)}</span>
+                      <span className="guide-cumulative-pct"> · {savePct.toFixed(0)}%</span>
+                      {isMultiWeek && (
+                        <span className="guide-cumulative-left"> · ${(billTarget - deposited).toFixed(2)} to go</span>
+                      )}
+                    </div>
+                    <div className={`guide-cumulative-track${isFullySaved ? ' done' : ''}`}>
+                      <div className="guide-cumulative-fill" style={{ width: `${savePct}%` }} />
+                    </div>
+                  </div>
+                )}
               </div>
               );
             })}
@@ -483,7 +573,8 @@ export function AssistantView({ history, priorities, bills, goals, loans }: Prop
             )}
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* ── Goal contributions ── */}
       {activeGoals.length > 0 && (

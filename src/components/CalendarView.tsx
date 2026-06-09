@@ -149,9 +149,27 @@ function buildMonthEvents(
       occurrences.push({ day: d, pKey, deposited, paid });
     }
 
-    // Show all paid occurrences + only the first unpaid one
+    // For high-frequency bills (weekly/fortnightly/interval), only show the next unpaid
+    // occurrence once we're within 7 days of it — prevents next week's item appearing
+    // immediately after this week's is paid.
     const firstUnpaidIdx = occurrences.findIndex(o => !o.paid);
-    const visible = firstUnpaidIdx === -1 ? occurrences : occurrences.slice(0, firstUnpaidIdx + 1);
+    let visible: typeof occurrences;
+    if (firstUnpaidIdx === -1) {
+      visible = occurrences;
+    } else {
+      const isHighFreq = ['weekly', 'fortnightly', 'interval'].includes(bill.recurrence);
+      if (isHighFreq) {
+        const todayMs = Date.now();
+        const dueDate = new Date(year, month, occurrences[firstUnpaidIdx].day);
+        const daysUntilDue = Math.ceil((dueDate.getTime() - todayMs) / 86400000);
+        const showNext = daysUntilDue <= 7; // within 7 days (or overdue)
+        visible = showNext
+          ? occurrences.slice(0, firstUnpaidIdx + 1)
+          : occurrences.slice(0, firstUnpaidIdx);
+      } else {
+        visible = occurrences.slice(0, firstUnpaidIdx + 1);
+      }
+    }
 
     for (const occ of visible) {
       events.push({
@@ -389,7 +407,7 @@ export function CalendarView({ bills, onChange, priorities, onPrioritiesChange, 
     .slice()
     .sort((a, b) => {
       if (a.paid !== b.paid) return a.paid ? 1 : -1;
-      return b.amount - a.amount;
+      return a.day - b.day;
     });
   const isNow      = year === now.getFullYear() && month === now.getMonth();
   const totalDue   = allEvents.reduce((s, e) => s + e.amount, 0);

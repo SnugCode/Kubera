@@ -1174,6 +1174,81 @@ input[type=number] { -moz-appearance: textfield; }
 }
 .guide-step-warn .guide-step-amount { color: var(--red); }
 
+.guide-step-over { border-left: 3px solid #d97706; padding-left: 8px; margin-left: -8px; }
+.guide-step-amount.over-alloc { color: #d97706; }
+
+.guide-over-chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: rgba(217,119,6,0.12);
+  color: #d97706;
+  white-space: nowrap;
+}
+
+.guide-over-note {
+  font-size: 13px;
+  color: #92400e;
+  background: rgba(217,119,6,0.08);
+  border: 1px solid rgba(217,119,6,0.25);
+  border-radius: 8px;
+  padding: 10px 13px;
+  margin-bottom: 14px;
+  line-height: 1.5;
+}
+
+.guide-bar-actual.over {
+  background: #d97706;
+  opacity: 0.75;
+}
+
+/* Multi-week saving / fully covered states */
+.guide-step-full { border-left: 3px solid var(--green); padding-left: 8px; margin-left: -8px; }
+
+.guide-saved-chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: rgba(23,107,65,0.12);
+  color: var(--green);
+  white-space: nowrap;
+}
+
+.guide-cumulative {
+  grid-column: 1 / -1;
+  margin-top: 4px;
+  padding-left: 40px;
+}
+.guide-cumulative-label {
+  font-size: 11px;
+  margin-bottom: 4px;
+}
+.guide-cumulative-saved { color: var(--text); font-weight: 600; }
+.guide-cumulative-of    { color: var(--muted); }
+.guide-cumulative-pct   { color: var(--muted); }
+.guide-cumulative-left  { color: #2e6b9a; font-weight: 600; }
+
+.guide-cumulative-track {
+  height: 5px;
+  background: var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.guide-cumulative-track.done { background: rgba(23,107,65,0.15); }
+.guide-cumulative-fill {
+  height: 100%;
+  background: #2e6b9a;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+.guide-cumulative-track.done .guide-cumulative-fill { background: var(--green); }
+
 .guide-step-num {
   grid-row: 1 / 3;
   width: 28px;

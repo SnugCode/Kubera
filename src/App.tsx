@@ -13,9 +13,14 @@ type View = 'paycheck' | 'priorities' | 'goals' | 'calendar' | 'assistant' | 'st
 
 const WKPM = 52 / 12;
 
-function computeBillsMonthlyTotal(bills: Bill[]): number {
+function computeBillsMonthlyTotal(bills: Bill[], priorities: Priority[]): number {
   return bills
-    .filter(b => (b.category ?? 'bill') === 'bill' && b.amount > 0)
+    .filter(b => {
+      if ((b.category ?? 'bill') !== 'bill' || b.amount <= 0) return false;
+      // Exclude any bill that has its own standalone priority (prevent double-counting)
+      const lk = (b.linkKey ?? b.name).trim().toLowerCase();
+      return !priorities.some(p => !p.autoSum && !p.loansAutoSum && (p.linkKey ?? p.name).trim().toLowerCase() === lk);
+    })
     .reduce((sum, b) => {
       switch (b.recurrence) {
         case 'weekly':      return sum + b.amount * WKPM;
@@ -78,7 +83,7 @@ export default function App() {
   // Auto-create / update / remove the Bills aggregator priority whenever bills change
   useEffect(() => {
     if (!ready) return;
-    const monthlyTotal = computeBillsMonthlyTotal(bills);
+    const monthlyTotal = computeBillsMonthlyTotal(bills, priorities);
     const idx = priorities.findIndex(p => p.autoSum);
 
     if (monthlyTotal > 0) {

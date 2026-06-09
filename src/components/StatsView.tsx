@@ -87,17 +87,21 @@ function getWeekRange(offset: number): WeekRange {
   };
 }
 
+function parseRecordDate(s: string): Date {
+  return s.includes('T') ? new Date(s) : new Date(s + 'T00:00:00');
+}
+
 function getWeekRecords(history: PaycheckRecord[], start: Date, end: Date): PaycheckRecord[] {
   return history
-    .filter(r => { const d = new Date(r.date); return d >= start && d <= end; })
-    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    .filter(r => { const d = parseRecordDate(r.date); return d >= start && d <= end; })
+    .sort((a, b) => parseRecordDate(a.date).getTime() - parseRecordDate(b.date).getTime());
 }
 
 // Find the most recent week (offset) that has at least one paycheck record
 function nearestPastWeek(history: PaycheckRecord[], fromOffset: number): number | null {
   for (let o = fromOffset - 1; o >= -104; o--) {
     const { start, end } = getWeekRange(o);
-    if (history.some(r => { const d = new Date(r.date); return d >= start && d <= end; })) return o;
+    if (history.some(r => { const d = parseRecordDate(r.date); return d >= start && d <= end; })) return o;
   }
   return null;
 }
@@ -105,7 +109,7 @@ function nearestPastWeek(history: PaycheckRecord[], fromOffset: number): number 
 function nearestFutureWeek(history: PaycheckRecord[], fromOffset: number): number | null {
   for (let o = fromOffset + 1; o <= 0; o++) {
     const { start, end } = getWeekRange(o);
-    if (history.some(r => { const d = new Date(r.date); return d >= start && d <= end; })) return o;
+    if (history.some(r => { const d = parseRecordDate(r.date); return d >= start && d <= end; })) return o;
   }
   return null;
 }
