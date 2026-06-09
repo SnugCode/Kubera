@@ -257,8 +257,11 @@ export function PrioritiesView({ priorities, onChange, bills, goals, loans }: Pr
                     <span className="priority-name">{p.name}</span>
                     <div className="priority-tags">
                       <span className={`type-badge type-${p.type}`}>{typeLabel(p)}</span>
-                      {bills.some((b) => getLinkKey(b) === getLinkKey(p)) && (
-                        <span className="link-tag bill-link" title={`Linked to: ${bills.filter(b => getLinkKey(b) === getLinkKey(p)).map(b => b.name).join(', ')} in Bills`}>→ Bill</span>
+                      {bills.some((b) => getLinkKey(b) === getLinkKey(p) && b.category === 'priority-linked') && (
+                        <span className="link-tag tracked-link" title="Tracked in Bills & Expenses — deposits logged there sync here">→ Tracked in Bills</span>
+                      )}
+                      {bills.some((b) => getLinkKey(b) === getLinkKey(p) && (b.category ?? 'bill') === 'bill') && (
+                        <span className="link-tag bill-link" title={`Part of the Bills aggregator`}>→ Bill</span>
                       )}
                       {goals.some((g) => getLinkKey(g) === getLinkKey(p)) && (
                         <span className="link-tag goal-link" title={`Linked to: ${goals.filter(g => getLinkKey(g) === getLinkKey(p)).map(g => g.name).join(', ')} in Goals`}>→ Goal</span>

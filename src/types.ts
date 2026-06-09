@@ -46,7 +46,7 @@ export interface Bill {
   startDate?: string;      // for interval: ISO date of first occurrence
   intervalDays?: number;   // for interval: e.g. 28
   color: string;
-  category?: 'bill' | 'expense'; // 'bill' = rolls up into Bills priority; 'expense' = standalone
+  category?: 'bill' | 'expense' | 'priority-linked'; // 'bill' = rolls up into Bills priority; 'expense' = standalone; 'priority-linked' = tracked alongside a matching Priority
   paidPeriods: string[];   // 'YYYY-MM' monthly · 'YYYY' yearly · 'YYYY-MM-DD' interval/one-time
   deposits?: Record<string, number>; // period key → cumulative deposited amount
 }

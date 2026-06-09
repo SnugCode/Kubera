@@ -39,7 +39,7 @@ interface Form {
   dueDate: string;
   startDate: string;
   intervalDays: string;
-  category: 'bill' | 'expense';
+  category: 'bill' | 'expense' | 'priority-linked';
 }
 
 const MONTH_NAMES = [
@@ -169,10 +169,12 @@ function buildMonthEvents(
     }
   }
 
-  // Fixed priorities with a due day
+  // Fixed priorities with a due day — skip any that have a priority-linked bill covering them
   const pKey = priorityPaidKey(year, month);
   for (const p of priorities) {
     if (p.type !== 'fixed' || !p.dueDay || p.dueDay > daysInMonth) continue;
+    const pk = getLinkKey(p);
+    if (bills.some(b => getLinkKey(b) === pk && b.category === 'priority-linked')) continue;
     events.push({
       key: `priority-${p.id}`,
       name: p.name,
@@ -408,8 +410,11 @@ export function CalendarView({ bills, onChange, priorities, onPrioritiesChange, 
     return allEvents.filter((e) => e.day === day);
   }
 
-  // Fixed priorities visible in calendar
-  const calPriorities = priorities.filter((p) => p.type === 'fixed' && p.dueDay);
+  // Fixed priorities visible in calendar (exclude those covered by a priority-linked bill)
+  const calPriorities = priorities.filter(
+    (p) => p.type === 'fixed' && p.dueDay &&
+    !bills.some(b => getLinkKey(b) === getLinkKey(p) && b.category === 'priority-linked')
+  );
 
   return (
     <div className="view">
@@ -615,6 +620,13 @@ export function CalendarView({ bills, onChange, priorities, onPrioritiesChange, 
               >
                 Expense
               </button>
+              <button
+                type="button"
+                className={`cat-btn${form.category === 'priority-linked' ? ' active' : ''}`}
+                onClick={() => setForm({ ...form, category: 'priority-linked' })}
+              >
+                Priority
+              </button>
             </div>
             {form.category === 'bill' && (
               <p className="cat-hint">Bills roll up into the <strong>Bills</strong> priority — tracked in the calendar with deposit logging.</p>
@@ -622,12 +634,19 @@ export function CalendarView({ bills, onChange, priorities, onPrioritiesChange, 
             {form.category === 'expense' && (
               <p className="cat-hint">Expenses are tracked in the calendar independently. Set up a matching priority in Priorities if you want it in your allocation.</p>
             )}
+            {form.category === 'priority-linked' && (
+              <p className="cat-hint">Tracked alongside a <strong>Priority</strong> of the same name — shows in the calendar with deposit logging, but not counted in the Bills total. Use this for things like Rent or Fuel that have their own priority.</p>
+            )}
             <input
               className="form-input"
               value={form.name}
               autoFocus
               onChange={(e) => setForm({ ...form, name: e.target.value })}
-              placeholder={form.category === 'bill' ? 'Name — e.g. Netflix, Internet, Car insurance…' : 'Name — e.g. Rent, Gym membership…'}
+              placeholder={
+                form.category === 'bill' ? 'Name — e.g. Netflix, Internet, Car insurance…' :
+                form.category === 'priority-linked' ? 'Name — must match your Priority name exactly, e.g. Rent, Fuel…' :
+                'Name — e.g. Gym membership, Subscriptions…'
+              }
               onKeyDown={(e) => e.key === 'Enter' && addBill()}
             />
             <select
@@ -740,7 +759,7 @@ export function CalendarView({ bills, onChange, priorities, onPrioritiesChange, 
               />
             )}
             <button className="add-btn" onClick={addBill} disabled={!canAdd}>
-              Add Bill
+              {form.category === 'bill' ? 'Add Bill' : form.category === 'expense' ? 'Add Expense' : 'Add Tracked Item'}
             </button>
           </div>
         )}
@@ -755,11 +774,16 @@ export function CalendarView({ bills, onChange, priorities, onPrioritiesChange, 
               <div key={b.id} className="all-bill-row">
                 <span className="bill-color-dot" style={{ background: b.color }} />
                 <div className="bill-info">
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                     <span className="bill-name">{b.name}</span>
                     <span className={`cat-badge cat-badge-${b.category ?? 'bill'}`}>
-                      {b.category === 'expense' ? 'Expense' : 'Bill'}
+                      {b.category === 'expense' ? 'Expense' : b.category === 'priority-linked' ? 'Priority' : 'Bill'}
                     </span>
+                    {b.category === 'priority-linked' && (
+                      priorities.some(p => getLinkKey(p) === getLinkKey(b))
+                        ? <span className="link-tag tracked-link">→ {priorities.find(p => getLinkKey(p) === getLinkKey(b))!.name}</span>
+                        : <span className="link-tag unlinked-tag">no matching priority</span>
+                    )}
                   </div>
                   <span className="bill-meta">
                     {b.recurrence === 'weekly'      && b.startDate && `Weekly · from ${b.startDate}`}

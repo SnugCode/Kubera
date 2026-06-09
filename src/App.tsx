@@ -294,6 +294,8 @@ export default function App() {
           <StatsView
             history={history}
             priorities={priorities}
+            bills={bills}
+            loans={loans}
           />
         )}
         {view === 'loans' && (

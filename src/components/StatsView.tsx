@@ -1,9 +1,11 @@
 import { useState } from 'react';
-import type { PaycheckRecord, Priority } from '../types';
+import type { PaycheckRecord, Priority, Bill, Loan } from '../types';
 
 interface Props {
   history:    PaycheckRecord[];
   priorities: Priority[];
+  bills:      Bill[];
+  loans:      Loan[];
 }
 
 function fmtDate(d: Date): string {
@@ -13,6 +15,54 @@ function fmtDate(d: Date): string {
 function fmtShort(d: Date): string {
   const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   return `${months[d.getMonth()]} ${d.getDate()}`;
+}
+
+function billPeriodKey(bill: Bill, d: Date): string {
+  const y  = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  if (bill.recurrence === 'monthly' || bill.recurrence === 'quarterly') return `${y}-${mo}`;
+  if (bill.recurrence === 'yearly') return `${y}`;
+  return `${y}-${mo}-${dd}`;
+}
+
+function findBillOccurrence(bill: Bill, from: Date, to: Date): Date | null {
+  if (bill.recurrence === 'one-time' && bill.dueDate) {
+    const d = new Date(bill.dueDate + 'T00:00:00');
+    return d >= from && d <= to ? d : null;
+  }
+  if (bill.recurrence === 'monthly') {
+    for (let mo = -2; mo <= 3; mo++) {
+      const d = new Date(from.getFullYear(), from.getMonth() + mo, bill.dueDay);
+      if (d >= from && d <= to) return d;
+    }
+    return null;
+  }
+  if (bill.recurrence === 'yearly' && bill.dueMonth && bill.dueDay) {
+    for (let yr = -1; yr <= 2; yr++) {
+      const d = new Date(from.getFullYear() + yr, bill.dueMonth - 1, bill.dueDay);
+      if (d >= from && d <= to) return d;
+    }
+    return null;
+  }
+  if (bill.recurrence === 'quarterly' && bill.startDate) {
+    let d = new Date(bill.startDate + 'T00:00:00'); d.setHours(0,0,0,0);
+    while (d < from) { const n = new Date(d.getFullYear(), d.getMonth() + 3, d.getDate()); if (n > from) break; d = n; }
+    for (let i = 0; i < 6; i++) {
+      if (d >= from && d <= to) return d;
+      d = new Date(d.getFullYear(), d.getMonth() + 3, d.getDate());
+      if (d > to) break;
+    }
+    return null;
+  }
+  if (bill.startDate && ['weekly','fortnightly','interval'].includes(bill.recurrence)) {
+    const step = bill.recurrence === 'weekly' ? 7 : bill.recurrence === 'fortnightly' ? 14 : (bill.intervalDays ?? 1);
+    let d = new Date(bill.startDate + 'T00:00:00'); d.setHours(0,0,0,0);
+    if (d > to) return null;
+    while (d < from) d.setDate(d.getDate() + step);
+    return d <= to ? new Date(d) : null;
+  }
+  return null;
 }
 
 interface WeekRange {
@@ -60,7 +110,7 @@ function nearestFutureWeek(history: PaycheckRecord[], fromOffset: number): numbe
   return null;
 }
 
-export function StatsView({ history, priorities }: Props) {
+export function StatsView({ history, priorities, bills, loans }: Props) {
   const [weekOffset, setWeekOffset] = useState(0);
 
   const { start, end, label } = getWeekRange(weekOffset);
@@ -105,6 +155,27 @@ export function StatsView({ history, priorities }: Props) {
     }
     return [...map.values()].sort((a, b) => b.allocated - a.allocated);
   })();
+
+  // Bills due during this week and their payment status
+  const billsDueThisWeek = bills.flatMap(bill => {
+    const occ = findBillOccurrence(bill, start, end);
+    if (!occ) return [];
+    const pKey     = billPeriodKey(bill, occ);
+    const deposited = (bill.deposits ?? {})[pKey] ?? 0;
+    const paid      = bill.paidPeriods.includes(pKey) || deposited >= bill.amount;
+    const remaining = Math.max(0, bill.amount - deposited);
+    return [{ bill, occ, pKey, deposited, paid, remaining }];
+  });
+
+  // Loan payments made during this week (have exact dates)
+  const loanPaymentsThisWeek = loans.flatMap(loan =>
+    loan.payments
+      .filter(p => {
+        const d = new Date(p.date + 'T00:00:00');
+        return d >= start && d <= end;
+      })
+      .map(p => ({ loan, payment: p }))
+  ).sort((a, b) => a.payment.date.localeCompare(b.payment.date));
 
   return (
     <div className="view">
@@ -239,6 +310,72 @@ export function StatsView({ history, priorities }: Props) {
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* ── What was paid this week ── */}
+          {(billsDueThisWeek.length > 0 || loanPaymentsThisWeek.length > 0) && (
+            <div className="card">
+              <h3 className="section-title">What was paid this week</h3>
+
+              {billsDueThisWeek.length > 0 && (
+                <div className="stats-pay-section">
+                  <div className="stats-pay-section-label">Bills &amp; Expenses</div>
+                  {billsDueThisWeek.map(({ bill, occ, deposited, paid, remaining }) => {
+                    const pct = bill.amount > 0 ? Math.min(100, (deposited / bill.amount) * 100) : 0;
+                    return (
+                      <div key={bill.id} className="stats-pay-row">
+                        <span className="stats-pay-dot" style={{ background: bill.color }} />
+                        <div className="stats-pay-info">
+                          <div className="stats-pay-top">
+                            <span className="stats-pay-name">{bill.name}</span>
+                            <span className={`stats-pay-badge ${paid ? 'paid' : deposited > 0 ? 'partial' : 'unpaid'}`}>
+                              {paid ? 'Paid' : deposited > 0 ? 'Partial' : 'Unpaid'}
+                            </span>
+                          </div>
+                          <div className="stats-pay-sub">
+                            due {fmtDate(occ)} ·{' '}
+                            {paid
+                              ? `$${bill.amount.toFixed(2)}`
+                              : deposited > 0
+                              ? `$${deposited.toFixed(2)} of $${bill.amount.toFixed(2)} — $${remaining.toFixed(2)} left`
+                              : `$${bill.amount.toFixed(2)} outstanding`}
+                          </div>
+                          {deposited > 0 && !paid && (
+                            <div className="stats-pay-bar-track">
+                              <div className="stats-pay-bar-fill" style={{ width: `${pct}%`, background: bill.color }} />
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {loanPaymentsThisWeek.length > 0 && (
+                <div className="stats-pay-section">
+                  <div className="stats-pay-section-label">Loan Payments</div>
+                  {loanPaymentsThisWeek.map(({ loan, payment }) => {
+                    const totalPaid = loan.payments.reduce((s, p) => s + p.amount, 0);
+                    const pct       = loan.totalAmount > 0 ? Math.min(100, (totalPaid / loan.totalAmount) * 100) : 0;
+                    return (
+                      <div key={payment.id} className="stats-pay-row">
+                        <span className="stats-pay-dot" style={{ background: loan.color }} />
+                        <div className="stats-pay-info">
+                          <div className="stats-pay-top">
+                            <span className="stats-pay-name">{loan.name}</span>
+                            <span className="stats-pay-amount">${payment.amount.toFixed(2)}</span>
+                          </div>
+                          <div className="stats-pay-sub">
+                            {payment.date} · {pct.toFixed(0)}% of ${loan.totalAmount.toFixed(2)} paid off
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
         </>

@@ -801,6 +801,8 @@ body {
 .link-tag.priority-link { color: var(--green);  border-color: var(--green);  background: #f0f7f3; }
 .link-tag.bill-link      { color: #2e6b9a;       border-color: #2e6b9a;       background: #eef4f9; }
 .link-tag.goal-link      { color: #8a5c2e;       border-color: #8a5c2e;       background: #faf5ef; }
+.link-tag.tracked-link   { color: #6b3fa0;       border-color: #6b3fa0;       background: #f5eeff; }
+.link-tag.unlinked-tag   { color: var(--danger); border-color: var(--danger); background: #fff0f0; }
 
 /* Priority tags row */
 .priority-tags { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
@@ -1492,8 +1494,9 @@ input[type=number] { -moz-appearance: textfield; }
   letter-spacing: 0.4px;
   flex-shrink: 0;
 }
-.cat-badge-bill    { background: #e8f5ee; color: var(--green); border: 1px solid #b2d8c0; }
-.cat-badge-expense { background: #fef3e2; color: #9a5c00; border: 1px solid #e6c97a; }
+.cat-badge-bill             { background: #e8f5ee; color: var(--green); border: 1px solid #b2d8c0; }
+.cat-badge-expense          { background: #fef3e2; color: #9a5c00;      border: 1px solid #e6c97a; }
+.cat-badge-priority-linked  { background: #f5eeff; color: #6b3fa0;      border: 1px solid #c9a8e8; }
 
 /* ── Auto-sum Bills priority (Priorities tab) ────────── */
 .auto-sum-item { background: #f9fbf9 !important; border-color: #b2d8c0 !important; }
@@ -1704,6 +1707,67 @@ input[type=number] { -moz-appearance: textfield; }
 
 .stats-indiv-date   { font-size: 13px; color: var(--muted); }
 .stats-indiv-amount { font-size: 14px; font-weight: 700; color: var(--text); }
+
+/* ── Stats: what was paid this week ── */
+.stats-pay-section { margin-top: 12px; }
+.stats-pay-section + .stats-pay-section { margin-top: 20px; }
+.stats-pay-section-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.stats-pay-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.stats-pay-row:last-child { border-bottom: none; }
+
+.stats-pay-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+
+.stats-pay-info  { flex: 1; min-width: 0; }
+.stats-pay-top   { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 2px; }
+.stats-pay-name  { font-size: 14px; font-weight: 600; color: var(--text); }
+.stats-pay-amount { font-size: 14px; font-weight: 700; color: var(--text); white-space: nowrap; }
+.stats-pay-sub   { font-size: 12px; color: var(--muted); }
+
+.stats-pay-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+.stats-pay-badge.paid    { background: rgba(23,107,65,0.12); color: var(--green); }
+.stats-pay-badge.partial { background: rgba(211,84,0,0.10);  color: #d35400; }
+.stats-pay-badge.unpaid  { background: rgba(150,60,60,0.10); color: var(--danger); }
+
+.stats-pay-bar-track {
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 6px;
+}
+.stats-pay-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
 
 /* ── Loans & Repayments ───────────────────────────────── */
 
