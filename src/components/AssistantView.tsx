@@ -389,6 +389,35 @@ export function AssistantView({ history, priorities, bills, goals, loans }: Prop
   const billMap = new Map<string, Bill>();
   for (const b of bills) billMap.set((b.linkKey ?? b.name).trim().toLowerCase(), b);
 
+  // Monthly aggregation — all paychecks from the 1st of this month
+  const monthStart = new Date();
+  monthStart.setDate(1);
+  monthStart.setHours(0, 0, 0, 0);
+  const thisMonthRecords = history.filter(r => parseRecordDate(r.date) >= monthStart);
+  const monthlyGross = thisMonthRecords.reduce((s, r) => s + r.gross, 0);
+  const monthlyMap = new Map<string, { id: string; name: string; allocated: number; target: number | null; type: string; positionIdx: number }>();
+  for (const rec of thisMonthRecords) {
+    for (const line of rec.result.lines) {
+      const id   = line.priority.id;
+      const prev = monthlyMap.get(id);
+      if (prev) {
+        prev.allocated += line.allocated;
+      } else {
+        const posIdx = result.lines.findIndex(l => l.priority.id === id);
+        monthlyMap.set(id, {
+          id,
+          name:        line.priority.name,
+          allocated:   line.allocated,
+          target:      line.priority.type === 'fixed' ? (line.priority.amount ?? null) : null,
+          type:        line.priority.type,
+          positionIdx: posIdx >= 0 ? posIdx : 999,
+        });
+      }
+    }
+  }
+  const monthlyLines       = [...monthlyMap.values()].sort((a, b) => a.positionIdx - b.positionIdx);
+  const monthlyUnallocated = thisMonthRecords.reduce((s, r) => s + r.result.unallocated, 0);
+
   return (
     <div className="view">
 
@@ -480,7 +509,7 @@ export function AssistantView({ history, priorities, bills, goals, loans }: Prop
 
         return (
         <div className="card">
-          <h3 className="section-title">Where to put your money</h3>
+          <h3 className="section-title">Amount to allocate for this Week</h3>
 
           {totalOverage > 0.01 && (
             <div className="guide-over-note">
@@ -575,6 +604,63 @@ export function AssistantView({ history, priorities, bills, goals, loans }: Prop
         </div>
         );
       })()}
+
+      {/* ── Monthly totals ── */}
+      {monthlyLines.length > 0 && (
+        <div className="card">
+          <h3 className="section-title">
+            Total Allocations for this month so far
+            <span className="guide-preview-badge">
+              {thisMonthRecords.length} paycheck{thisMonthRecords.length !== 1 ? 's' : ''} · ${monthlyGross.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} in
+            </span>
+          </h3>
+          <div className="guide-steps">
+            {monthlyLines.map(({ id, name, allocated, target, type, positionIdx }, i) => {
+              const tier = priorityTier(positionIdx);
+              const pct  = target != null && target > 0 ? Math.min(100, (allocated / target) * 100) : 0;
+              return (
+                <div key={id} className="guide-step">
+                  <span className="guide-step-num">{i + 1}</span>
+                  <div className="guide-step-body">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      <span className="guide-step-name">{name}</span>
+                      <span className={`guide-tier-badge guide-tier-${tier}`}>
+                        {tier === 'essential' ? 'Essential' : 'Good to have'}
+                      </span>
+                    </div>
+                    <span className="guide-step-amount">
+                      ${allocated.toFixed(2)}
+                      {target != null && (
+                        <span className="guide-step-note"> / ${target.toFixed(2)} monthly</span>
+                      )}
+                      {type === 'percentage' && (
+                        <span className="guide-step-note"> (variable)</span>
+                      )}
+                      {type === 'remainder' && (
+                        <span className="guide-step-note"> (remainder)</span>
+                      )}
+                    </span>
+                  </div>
+                  {target != null && target > 0 && (
+                    <div className="guide-bar-track">
+                      <div className="guide-bar-fill" style={{ width: `${pct}%` }} />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {monthlyUnallocated > 0.005 && (
+              <div className="guide-step guide-step-unalloc">
+                <span className="guide-step-num">→</span>
+                <div className="guide-step-body">
+                  <span className="guide-step-name muted">Unallocated</span>
+                  <span className="guide-step-amount muted">${monthlyUnallocated.toFixed(2)}</span>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── Goal contributions ── */}
       {activeGoals.length > 0 && (
