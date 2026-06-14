@@ -1,23 +1,27 @@
 {
   "name": "kubera",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "vue-tsc -b && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "vue": "^3.5.13",
+    "vue-router": "^4.4.5",
+    "pinia": "^2.3.0"
   },
   "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.1",
     "@types/node": "^25.9.2",
-    "@types/react": "^19.1.0",
-    "@types/react-dom": "^19.1.0",
-    "@vitejs/plugin-react": "^4.5.2",
     "typescript": "~5.9.2",
-    "vite": "^6.3.5"
+    "vite": "^6.3.5",
+    "vue-tsc": "^2.2.10"
   },
-  "private": true
+  "private": true,
+  "allowScripts": {
+    "esbuild@0.25.12": true,
+    "vue-demi@0.14.10": true
+  }
 }
